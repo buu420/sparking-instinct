@@ -1,6 +1,6 @@
 Sparking Instinct is a screen reader mod for **DRAGON BALL: Sparking! ZERO**. Jessica Tegner and the contributors to Sparking Zero Access created the original reader. This beta ports it to Reloaded II and Prism and starts it when you launch the game normally through Steam. [Original project](https://github.com/AccessForge/SparkingZeroAccess)
 
-This release supports **Windows x64 and Steam build 24953175, game version 3022.021.003.012.015**. It uses the x64 .NET 9 Desktop Runtime. Setup needs internet access to fetch the original reader from its pinned AccessForge commit. Setup verifies that download and prepares the port locally.
+This release supports **Windows x64 and Steam build 24953175, game version 3022.021.003.012.015**. It uses the x64 .NET 9 Desktop Runtime. You can install and play without the AccessForge app. Setup needs internet access to download and verify the original reader and audio descriptions from GitHub. Reloaded II loads the prepared files locally when you start the game.
 
 - **Amethyst:** Choose **Sparking Instinct (Beta)** from Buu420. Close the game before installing, updating, or uninstalling. Use the standalone ZIP below for manual installation. [Buu420 Amethyst catalog](https://github.com/buu420/buu-s-mods)
 - **Standalone:** Close the game, extract the Windows ZIP, and run `Install.cmd`. Run `Uninstall.cmd` from the extracted ZIP to remove it. Remove any prior standalone Reloaded preview with its own uninstaller before installing.

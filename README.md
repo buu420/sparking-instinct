@@ -2,11 +2,11 @@
 
 Sparking Instinct brings screen reader speech to DRAGON BALL: Sparking! ZERO on Steam. It reads supported menus, character selection, training, controls, battle gauges, and story text. It includes timed audio description for the main opening and the post-tutorial movie.
 
-**Jessica Tegner and the Sparking Zero Access contributors created the original reader.** Buu420 maintains this Reloaded II and Prism port. Setup downloads the original reader from the AccessForge repository at a pinned commit, verifies it, and applies the port's changes on your PC. The download also supplies the original audio description files included in that upstream commit. [Sparking Zero Access](https://github.com/AccessForge/SparkingZeroAccess) · [Earlier upstream repair](https://github.com/AccessForge/SparkingZeroAccess/pull/7)
+**Jessica Tegner and the Sparking Zero Access contributors created the original reader.** Buu420 maintains this Reloaded II and Prism port. [Sparking Zero Access](https://github.com/AccessForge/SparkingZeroAccess) · [Earlier upstream repair](https://github.com/AccessForge/SparkingZeroAccess/pull/7)
 
 ## Install
 
-The first beta supports **Windows x64, Steam build 24953175 (game version 3022.021.003.012.015)**, and requires the x64 **.NET 9 Desktop Runtime**. Setup needs internet access.
+The first beta supports **Windows x64, Steam build 24953175 (game version 3022.021.003.012.015)**, and requires the x64 **.NET 9 Desktop Runtime**. You can install and play without the AccessForge app. Setup needs internet access to download and verify the original reader and audio descriptions from GitHub. Reloaded II loads the prepared files locally when you start the game.
 
 - **Amethyst:** Close the game, find **Sparking Instinct (Beta)** under **DRAGON BALL: Sparking! ZERO** in the Buu420 source, and choose Install. Amethyst will ask before running the script that verifies and prepares the reader. Use Amethyst to uninstall. [Buu420 catalog](https://github.com/buu420/buu-s-mods)
 - **Standalone:** Close the game, extract the Windows ZIP, and run `Install.cmd`. It finds the Steam install or opens a folder picker. Use `Uninstall.cmd` to remove a standalone install. [GitHub releases](https://github.com/buu420/sparking-instinct/releases)
