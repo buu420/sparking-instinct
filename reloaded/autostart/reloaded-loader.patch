@@ -1,0 +1,167 @@
+diff --git a/source/Reloaded.Mod.Loader/Loader.cs b/source/Reloaded.Mod.Loader/Loader.cs
+--- a/source/Reloaded.Mod.Loader/Loader.cs
++++ b/source/Reloaded.Mod.Loader/Loader.cs
+@@ -22,9 +22,18 @@
+     /// Initialize the loader.
+     /// </summary>
+     public Loader(bool isTesting = false)
++        : this(IConfig<LoaderConfig>.FromPathOrDefault(Paths.LoaderConfigPath), Paths.LogPath, isTesting)
++    {
++    }
++
++    /// <summary>
++    /// Initialize with an explicit profile and log directory for a game that
++    /// has already been started normally by its platform.
++    /// </summary>
++    internal Loader(LoaderConfig localConfig, string logPath, bool isTesting = false)
+     {
+         IsTesting = isTesting;
+-        LoaderConfig = IConfig<LoaderConfig>.FromPathOrDefault(Paths.LoaderConfigPath);
++        LoaderConfig = localConfig;
+         Logger  = new Logger();
+         Console = new Console(LoaderConfig.ShowConsole, Logger, Environment.IsWine ? (IConsoleProxy) new SystemConsoleProxy() : new ColorfulConsoleProxy());
+ 
+@@ -36,7 +45,7 @@
+         }
+         else
+         {
+-            LogWriter = new LogWriter(Logger, Paths.LogPath);
++            LogWriter = new LogWriter(Logger, logPath);
+             Manager = new PluginManager(this);
+         }
+     }
+@@ -121,10 +130,25 @@
+         IsLoaded = true;
+     }
+ 
++    /// <summary>
++    /// Load the one native mod selected by an explicit, standalone profile.
++    /// Other Mods and App directories are not searched from this entry point.
++    /// </summary>
++    internal void LoadLocalMod(IApplicationConfig applicationConfig, PathTuple<ModConfig> mod)
++    {
++        Wrappers.ThrowIfENotEqual(IsLoaded, false, Errors.ModLoaderAlreadyInitialized);
++        Application = applicationConfig;
++        Manager.LoadMods(new List<PathTuple<ModConfig>> { mod }, localNative: true);
++        if (!Manager.IsModLoaded(mod.Config.ModId))
++            throw new InvalidOperationException("The installed native mod could not be loaded.");
++        Manager.LoaderApi.OnModLoaderInitialized();
++        IsLoaded = true;
++    }
++
+     /// <summary>
+     /// Gets a list of all mods from filesystem and returns a mod with a matching ModId.
+     /// </summary>
+     /// <param name="modId">The modId to find.</param>
+     /// <param name="allMods">List of all mod configurations, read during the operation.</param>
+     /// <exception cref="ReloadedException">A mod to load has not been found.</exception>
+     public PathTuple<ModConfig> FindMod(string modId, out List<PathTuple<ModConfig>> allMods)
+diff --git a/source/Reloaded.Mod.Loader/Mods/PluginManager.cs b/source/Reloaded.Mod.Loader/Mods/PluginManager.cs
+--- a/source/Reloaded.Mod.Loader/Mods/PluginManager.cs
++++ b/source/Reloaded.Mod.Loader/Mods/PluginManager.cs
+@@ -75,6 +75,9 @@
+     /// </summary>
+     /// <param name="modPaths">Tuples of individual mod configurations and the paths to those configurations.</param>
+     public void LoadMods(List<PathTuple<ModConfig>> modPaths)
++        => LoadMods(modPaths, false);
++
++    internal void LoadMods(List<PathTuple<ModConfig>> modPaths, bool localNative)
+     {
+         /* Load mods. */
+         if (modPaths.Count <= 0) 
+@@ -94,7 +97,7 @@
+             if (!mod.Config.HasDllPath())
+                 instance = PrepareNonDllMod(mod);
+             else if (mod.Config.IsNativeMod(mod.Path))
+-                instance = PrepareNativeMod(mod);
++                instance = PrepareNativeMod(mod, localNative);
+             else
+                 instance = PrepareDllMod(mod);
+ 
+@@ -303,19 +306,22 @@
+         }
+     }
+ 
+-    private ModInstance PrepareNativeMod(PathTuple<ModConfig> tuple)
++    private ModInstance PrepareNativeMod(PathTuple<ModConfig> tuple, bool localNative)
+     {
+         var modId = tuple.Config.ModId;
+         var dllPath = tuple.Config.GetNativeDllPath(tuple.Path);
+ 
+         if (!DoesDllExist(dllPath, tuple))
++        {
++            if (localNative) throw new FileNotFoundException("The installed native mod is missing.", dllPath);
+             return new ModInstance(tuple.Config);
++        }
+ 
+         _modIdToFolder[modId] = Path.GetFullPath(Path.GetDirectoryName(tuple.Path)!);
+ 
+         // Hand the mod its user config directory and the loader API table
+         var userConfigDirectory = ModUserConfig.GetUserConfigFolderForMod(modId, _loader.LoaderConfig.GetModUserConfigDirectory());
+-        return new ModInstance(new NativeMod(dllPath, userConfigDirectory, _nativeLoaderApi.TablePointer, modId), tuple.Config);
++        return new ModInstance(new NativeMod(dllPath, userConfigDirectory, _nativeLoaderApi.TablePointer, modId, localNative), tuple.Config);
+     }
+ 
+     private ModInstance PrepareNonDllMod(PathTuple<ModConfig> tuple)
+diff --git a/source/Reloaded.Mod.Loader/Mods/Structs/NativeMod.cs b/source/Reloaded.Mod.Loader/Mods/Structs/NativeMod.cs
+--- a/source/Reloaded.Mod.Loader/Mods/Structs/NativeMod.cs
++++ b/source/Reloaded.Mod.Loader/Mods/Structs/NativeMod.cs
+@@ -35,6 +35,11 @@
+     /// <param name="loaderApiTable">Pointer to the native loader API table shared by all mods, passed to mods exporting ReloadedStartEx.</param>
+     /// <param name="modId">Id of this mod, handed to the mod with the loader API.</param>
+     public NativeMod(string path, string userConfigDirectory = null, nint loaderApiTable = default, string modId = null)
++        : this(path, userConfigDirectory, loaderApiTable, modId, false)
++    {
++    }
++
++    internal NativeMod(string path, string userConfigDirectory, nint loaderApiTable, string modId, bool localNative)
+     {
+         _modDirectory = Path.GetDirectoryName(Path.GetFullPath(path))!;
+         _userConfigDirectory = userConfigDirectory;
+@@ -43,11 +48,22 @@
+ 
+         // Set new DLL Directory, load library and restore.
+         // This could probably be better optimised but isn't a hot path, would rather save on memory, so it's no big deal.
+-        var builder = new StringBuilder(4096); // ought to be enough characters given most programs break at 260 anyway.
+-        GetDllDirectoryW(builder.Length, builder);
+-        SetDllDirectoryW(Path.GetDirectoryName(path));
+-        _moduleHandle = LoadLibraryW(path);
+-        SetDllDirectoryW(builder.ToString());
++        if (localNative)
++        {
++            // Search the mod and system directories without changing the game's DLL search path.
++            const uint localAndSystem = 0x00000100 | 0x00000800;
++            _moduleHandle = LoadLibraryExW(path, nint.Zero, localAndSystem);
++            if (_moduleHandle == nint.Zero)
++                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
++        }
++        else
++        {
++            var builder = new StringBuilder(4096); // ought to be enough characters given most programs break at 260 anyway.
++            GetDllDirectoryW(builder.Length, builder);
++            SetDllDirectoryW(Path.GetDirectoryName(path));
++            _moduleHandle = LoadLibraryW(path);
++            SetDllDirectoryW(builder.ToString());
++        }
+ 
+         _start = GetDelegateForNativeFunction<ReloadedStart>(_moduleHandle, nameof(ReloadedStart));
+         _startEx = GetDelegateForNativeFunction<ReloadedStartEx>(_moduleHandle, nameof(ReloadedStartEx));
+@@ -58,6 +74,8 @@
+         _reloadedCanUnload = GetDelegateForNativeFunction<ReloadedCanUnload>(_moduleHandle, nameof(ReloadedCanUnload));
+         _initializeAsi = GetDelegateForNativeFunction<InitializeASI>(_moduleHandle, nameof(InitializeASI));
+         _init = GetDelegateForNativeFunction<Init>(_moduleHandle, nameof(Init));
++        if (localNative && _start == null && _startEx == null)
++            throw new InvalidDataException("The installed native mod does not export a Reloaded entry point.");
+     }
+ 
+     // Note for implementation: There is no guarantee mod exports any function (Start, CanUnload, etc.). Start function might just be DllMain.
+@@ -206,6 +224,9 @@
+     }
+ 
+     #region Native Imports
++    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode, ExactSpelling = true)]
++    private static extern nint LoadLibraryExW(string path, nint file, uint flags);
++
+     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+     public static extern nint LoadLibraryW(string lpFileName);
+ 

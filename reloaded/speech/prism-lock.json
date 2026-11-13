@@ -1,0 +1,12 @@
+{
+  "version": "0.18.3",
+  "commit": "94329ebeccbaee7f70b3494a290c9dfaac0184ee",
+  "source": "https://github.com/ethindp/prism/tree/v0.18.3",
+  "archive": "https://github.com/ethindp/prism/releases/download/v0.18.3/prism-windows-x64.zip",
+  "archiveSha256": "13D3C9D1D524B0737CDE261C6468845753E36B6C5C2637E7D26BFB8BF4D8783F",
+  "dllEntry": "dynamic/release/bin/prism.dll",
+  "dllSha256": "7C7D09C8C7306E8E1A0C46D603CCB2A391C194C77843400C11B746E7DD56A467",
+  "headerSha256": "5303FD47F2305165D50E937609BBE59D3C2D928AA4270FFB7461DCC1FD3FAB19",
+  "versionHeaderSha256": "5A4D16504B20DF777272DAD406378EABCB3885519E239FB3496A16EBF9FA27BF",
+  "configVersion": 4
+}

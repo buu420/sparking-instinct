@@ -1,0 +1,48 @@
+{
+  "gameId": "dragon-ball-sparking-zero",
+  "displayName": "DRAGON BALL: Sparking! ZERO",
+  "modName": "Sparking Instinct (Beta)",
+  "description": "Sparking Instinct adds screen reader speech to supported menus, character selection, training, controls, battle gauges and story screens. It includes audio description for the main opening and post-tutorial movie. Original Sparking Zero Access reader by Jessica Tegner and contributors. Reloaded II and Prism port by Buu420.\n\nRequires Windows x64 and Steam build 24953175 (game version 3022.021.003.012.015). Close the game before install, update, or removal. Setup fetches the original reader directly from AccessForge and checks the files before installing. Remove a standalone Reloaded preview or active UE4SS loader through its own installer first. Once installed, start the game as usual from Steam or the Steam desktop shortcut.\n\nF6 reads the screen. F7 and F8 review the previous and next item. F9 toggles automatic subtitle speech and can also mute unvoiced text in subtitle windows. Visible tutorial instructions repeat every 20 seconds.\n\nTested with NVDA in the title screen, menus, offline training and controls. Story coverage, player-two gauges and audio description timing need more live testing.",
+  "steamAppId": "1790600",
+  "exeName": "SparkingZERO.exe",
+  "probeRules": [
+    {"type": "fileExists", "relativePath": "SparkingZERO/Binaries/Win64/SparkingZERO-Win64-Shipping.exe"}
+  ],
+  "tags": ["screen-reader"],
+  "languages": ["en"],
+  "dependencies": [
+    {
+      "id": "dotnet-9-desktop-x64",
+      "type": "system",
+      "targetPlatforms": ["windows"],
+      "minVersion": "9.0.8",
+      "check": {
+        "registryKey": "SOFTWARE\\dotnet\\Setup\\InstalledVersions\\x64\\sharedfx\\Microsoft.WindowsDesktop.App",
+        "registryValue": "9.0.23",
+        "registryView": "both"
+      },
+      "fix": {
+        "downloadUrl": "https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/9.0.23/windowsdesktop-runtime-9.0.23-win-x64.exe",
+        "autoInstall": {
+          "kind": "runInstaller",
+          "args": ["/install", "/quiet", "/norestart"],
+          "needsAdmin": true,
+          "sha256": "eefb60bd0f3fb33c0787074cebc0467ffba32bcb01088613121649fc3bdb4a27"
+        }
+      },
+      "required": true,
+      "isGameInstaller": false
+    }
+  ],
+  "defaultPreInstall": {
+    "executable": "setup/Prepare-AmethystInstall.ps1",
+    "needsAdmin": false,
+    "failureFatal": true,
+    "what": "Verify the Steam game build, check for another loader, and download and prepare the original Sparking Zero Access reader.",
+    "why": "Sparking Instinct uses build-specific bindings. Setup fetches Jessica Tegner’s original reader directly from AccessForge and checks it before use.",
+    "modifies": "Reads the selected game folder. Writes verified reader scripts and narration to Amethyst's package staging folder. Amethyst copies and records those files as part of installation.",
+    "installToGameFolder": false,
+    "runOnUpdate": true,
+    "runFromGameFolder": false
+  }
+}

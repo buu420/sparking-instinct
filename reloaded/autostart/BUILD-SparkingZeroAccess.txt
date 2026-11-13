@@ -1,0 +1,17 @@
+This archive contains the source for the SparkingZeroAccess game-local
+variant of Reloaded II 1.31.0, based on the following upstream release:
+https://github.com/Reloaded-Project/Reloaded-II/releases/tag/1.31.0
+
+The added LocalEntryPoint and local profile options in Loader, PluginManager
+and NativeMod are licensed under the same GPL v3 terms (LICENSE.md).
+The native mod is loaded by Reloaded's normal native mod API. The new entry
+point uses the already-running game process and a profile beside the game.
+
+To build the x64 loader, open PowerShell in the extracted archive and use
+.NET SDK 10.0.203 or later:
+
+dotnet publish source/Reloaded.Mod.Loader/Reloaded.Mod.Loader.csproj -c Release -r win-x64 --self-contained false -o loader -p:Platform=AnyCPU -p:PlatformTarget=x64 -p:RobustILLink=false -p:GenerateDepsJson=true -p:DebugSymbols=false -p:DebugType=none
+
+This is a framework-dependent build and needs the x64 .NET 9 Desktop Runtime.
+The upstream NuGet dependencies are recorded in the project files. Two
+packages supplied in the upstream source tree are retained under source/Packages.

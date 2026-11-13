@@ -1,0 +1,16 @@
+{
+  "ModId": "sparkingzero.accessibility.reloaded",
+  "ModName": "Sparking Instinct",
+  "ModAuthor": "Buu420, based on Sparking Zero Access by Jessica Tegner and contributors",
+  "ModVersion": "0.1.2",
+  "ModDescription": "Screen reader accessibility for DRAGON BALL: Sparking! ZERO on Steam.",
+  "ModNativeDll32": "",
+  "ModNativeDll64": "SparkingZeroAccess.Native.dll",
+  "SupportedAppId": [
+    "sparkingzero-win64-shipping.exe"
+  ],
+  "IsUniversalMod": false,
+  "ModDependencies": [],
+  "OptionalDependencies": [],
+  "ProjectUrl": "https://github.com/buu420/sparking-instinct"
+}
