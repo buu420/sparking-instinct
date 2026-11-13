@@ -11,7 +11,7 @@ $SparkingAutoStartSource = 'AutoStart/dsound.dll'
 $SparkingAutoStartGamePath = 'dsound.dll'
 $SparkingLoaderFolder = 'Loader\x64'
 $SparkingLocalLoaderFiles = @('Reloaded.Mod.Loader.dll','Reloaded.Mod.Loader.deps.json','Reloaded.Mod.Loader.runtimeconfig.json')
-$SparkingPackageVersion = '0.1.2'
+$SparkingPackageVersion = '0.1.3'
 $SparkingPrismHash = '7C7D09C8C7306E8E1A0C46D603CCB2A391C194C77843400C11B746E7DD56A467'
 $SparkingAudioHash = '452B2BC4E35F6D5EA07F624AC5D3AC2E2568F973BFDCE96C3EA640D2EF1FE189'
 
@@ -82,7 +82,7 @@ function Assert-ReloadedInstallationReceipt($Receipt) {
     if ($Receipt.schema -eq 1 -and ($Receipt.version -ne '0.1.0' -or $Receipt.PSObject.Properties['autoStart'])) {
         throw 'The installation receipt has inconsistent startup ownership.'
     }
-    if ($Receipt.schema -eq 2 -and ($Receipt.version -notin @('0.1.1',$SparkingPackageVersion) -or
+    if ($Receipt.schema -eq 2 -and ($Receipt.version -notin @('0.1.1','0.1.2',$SparkingPackageVersion) -or
         $Receipt.autoStart.path -cne $SparkingAutoStartGamePath -or
         $Receipt.autoStart.sha256 -eq $SparkingLegacyStartupHash -or
         $Receipt.autoStart.sha256 -notmatch '^[0-9a-fA-F]{64}$' -or $Receipt.autoStart.armed -isnot [bool] -or

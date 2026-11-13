@@ -23,7 +23,7 @@ function Hash-ReaderBytes([byte[]]$Bytes) {
 function Read-ReaderEntry($Zip,[string]$Path) {
     $entry = $Zip.GetEntry("SparkingZeroAccess-$commit/SparkingZeroAccess/$Path")
     if ($null -eq $entry -or $entry.Length -le 0 -or $entry.Length -gt 4194304) {
-        throw "AccessForge archive entry is missing or unexpected. $Path"
+        throw "Reader archive entry is missing or unexpected. $Path"
     }
     $inputStream = $entry.Open()
     $buffer = [IO.MemoryStream]::new()
@@ -44,16 +44,16 @@ try {
     if (-not $UpstreamArchive) {
         $temporaryArchive = Join-Path ([IO.Path]::GetTempPath()) ('SparkingReader-' + [guid]::NewGuid().ToString('N') + '.zip')
         $UpstreamArchive = $temporaryArchive
-        Write-Output 'Downloading Sparking Zero Access by Jessica Tegner from AccessForge.'
+        Write-Output 'Downloading the Sparking Zero Access reader from the Buu420 GitHub fork.'
         try {
-            Invoke-WebRequest -UseBasicParsing -Uri "https://codeload.github.com/AccessForge/SparkingZeroAccess/zip/$commit" `
+            Invoke-WebRequest -UseBasicParsing -Uri "https://codeload.github.com/buu420/SparkingZeroAccess/zip/$commit" `
                 -OutFile $UpstreamArchive -TimeoutSec 90
         } catch {
             throw "Could not download Sparking Zero Access from GitHub. Check your connection and retry. $($_.Exception.Message)"
         }
     }
     if ((Get-FileHash -LiteralPath $UpstreamArchive -Algorithm SHA256).Hash -cne $archiveHash) {
-        throw 'The AccessForge archive differs from the verified source. Setup stopped.'
+        throw 'The reader archive differs from the verified source. Setup stopped.'
     }
     $archive = [IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $UpstreamArchive).ProviderPath)
     $original = @{}
@@ -68,7 +68,7 @@ try {
             }
             [byte[]]$original[$relative] = Read-ReaderEntry $archive $relative
             if ((Hash-ReaderBytes $original[$relative]) -cne $file.original) {
-                throw "The AccessForge reader did not match the expected source. $relative"
+                throw "The reader file did not match the expected source. $relative"
             }
             if ($relative -match '\.(lua|json)$') { $lines[$relative] = Get-ReaderLines $original[$relative] }
         }
@@ -127,7 +127,7 @@ try {
         $target = Get-SafeReloadedPath $Destination $file.path
         Set-ReloadedBytes $target $ready[$file.path]
     }
-    Write-Output 'Verified 24 reader modules and 37 narration clips from the AccessForge source.'
+    Write-Output 'Verified 24 reader modules and 37 narration clips from the pinned reader source.'
 } finally {
     if ($temporaryArchive -and [IO.File]::Exists($temporaryArchive)) { [IO.File]::Delete($temporaryArchive) }
 }

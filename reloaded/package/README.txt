@@ -1,4 +1,4 @@
-Sparking Instinct for DRAGON BALL: Sparking! ZERO, version 0.1.2 beta
+Sparking Instinct for DRAGON BALL: Sparking! ZERO, version 0.1.3 beta
 
 Original Sparking Zero Access reader by Jessica Tegner and contributors.
 The Reloaded II and Prism port is maintained by Buu420.
@@ -12,9 +12,9 @@ game before relying on the preview.
    https://dotnet.microsoft.com/download/dotnet/9.0
 2. Close Sparking! ZERO and extract the complete ZIP.
 3. If you installed a standalone Reloaded II preview, run Uninstall.cmd first.
-   You can use the uninstaller from this ZIP for either older preview.
+   You can use the uninstaller from this ZIP for earlier standalone versions.
 4. Run Install.cmd. It locates the game through Steam or opens a file picker.
-   Setup downloads the original reader and narration from AccessForge and
+   Setup downloads the original reader and narration from Buu420's GitHub fork and
    prepares them locally. Internet access is required.
 5. Launch Sparking! ZERO from Steam or your usual desktop shortcut.
 

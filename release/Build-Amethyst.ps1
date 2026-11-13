@@ -39,7 +39,7 @@ Copy-ReloadedPackageFile (Get-SafeReloadedPath $source $package.autoStart.path) 
 $startupReceipt = [ordered]@{ installOwner='Amethyst'; modId=$SparkingReloadedModId; version=$SparkingPackageVersion }
 Set-ReloadedJson (Get-SafeReloadedPath $manager $SparkingReceiptPath) $startupReceipt
 $ammReadme = @'
-Sparking Instinct 0.1.2 beta for DRAGON BALL: Sparking! ZERO.
+Sparking Instinct 0.1.3 beta for DRAGON BALL: Sparking! ZERO.
 
 This copy is installed and removed by Amethyst. To play, launch the game as
 usual from Steam or the Steam desktop shortcut. Use Amethyst to uninstall.

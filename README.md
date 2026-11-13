@@ -6,7 +6,7 @@ Sparking Instinct brings screen reader speech to DRAGON BALL: Sparking! ZERO on 
 
 ## Install
 
-The first beta supports **Windows x64, Steam build 24953175 (game version 3022.021.003.012.015)**, and requires the x64 **.NET 9 Desktop Runtime**. You can install and play without the AccessForge app. Setup needs internet access to download and verify the original reader and audio descriptions from GitHub. Reloaded II loads the prepared files locally when you start the game.
+The beta supports **Windows x64, Steam build 24953175 (game version 3022.021.003.012.015)**, and requires the x64 **.NET 9 Desktop Runtime**. You can install and play without the AccessForge app. During installation, setup automatically downloads and verifies the original reader and audio descriptions from Buu420's GitHub fork. Reloaded II loads the prepared files locally when you start the game.
 
 - **Amethyst:** Close the game, find **Sparking Instinct (Beta)** under **DRAGON BALL: Sparking! ZERO** in the Buu420 source, and choose Install. Amethyst will ask before running the script that verifies and prepares the reader. Use Amethyst to uninstall. [Buu420 catalog](https://github.com/buu420/buu-s-mods)
 - **Standalone:** Close the game, extract the Windows ZIP, and run `Install.cmd`. It finds the Steam install or opens a folder picker. Use `Uninstall.cmd` to remove a standalone install. [GitHub releases](https://github.com/buu420/sparking-instinct/releases)
@@ -28,6 +28,6 @@ For a report, include the screen name, action, and whether `F6` still works. The
 
 ## Source
 
-`reloaded/` contains the native host, Prism integration, and game-local Reloaded II build. It keeps the old internal mod identity so the tested startup, preferences, and rollback paths still work. `release/` contains the Amethyst packaging and reader preparation tools. The installer verifies SHA-256 before using the pinned AccessForge source, and verifies the reconstructed files before the game can load them.
+`reloaded/` contains the native host, Prism integration, and game-local Reloaded II build. It keeps the old internal mod identity so the tested startup, preferences, and rollback paths still work. `release/` contains the Amethyst packaging and reader preparation tools. The installer verifies SHA-256 before using the pinned reader source from Buu420's fork, and verifies the reconstructed files before the game can load them.
 
 Reloaded II and Reloaded.Memory source and notices ship with the packages. The included Prism binary comes from its tagged upstream release. The AccessForge reader remains under its upstream terms. [Third-party notices](reloaded/package/THIRD-PARTY-NOTICES.md) · [Build instructions](release/build.md)

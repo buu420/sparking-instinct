@@ -147,4 +147,4 @@ if ($ArchivePath) {
     Write-Output ('Package ZIP: ' + $ArchivePath)
     Write-Output ('Package SHA-256: ' + (Get-ReloadedHash $ArchivePath))
 }
-Write-Output ("Verified {0} payload files. Setup obtains the reader and narration directly from AccessForge." -f $files.Count)
+Write-Output ("Verified {0} payload files. Setup downloads the pinned reader and narration from Buu420's GitHub fork." -f $files.Count)

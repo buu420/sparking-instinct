@@ -1,4 +1,4 @@
-# Build Sparking Instinct 0.1.2
+# Build Sparking Instinct 0.1.3
 
 Build on Windows x64 with CMake 3.23 or later, the Visual Studio 2022 C++ tools, and a .NET SDK that can target .NET 9. The installed mod uses the same native reader, game startup DLL, loader, and speech bridge as the verified Reloaded II preview. The public release changes the packaging and installation path.
 
@@ -17,4 +17,4 @@ Keep the dependency notices with the managed loader. The tested loader uses Relo
 
 Use `reloaded/package/Build-Package.ps1` with the x64 native DLL, startup DLL, Prism DLL, audio bridge, game-local loader directory, loader source ZIP, .NET host notices, and Reloaded.Memory source ZIP. The audio bridge and Prism checks in the builder pin the release inputs. Review and update the lock only when publishing a separately validated build. Build the manager variant with `release/Build-Amethyst.ps1` and pass `release/amethyst-game.json` as the game definition. Run `amm-author package validate` on the finished Amethyst ZIP.
 
-`reloaded/package/ReaderPlan.json` records the hashes and changes that setup applies to the reader. `release/Build-ReaderPlan.py` takes the exact upstream archive, a local reference ZIP containing the tested reader and narration, and an output path. It emits references for unchanged and reused source lines. The setup file accepts an optional local copy of the same verified upstream archive. [Pinned AccessForge source](https://github.com/AccessForge/SparkingZeroAccess/tree/527125583d5d7ef36890c1c006ed187923e7e923)
+`reloaded/package/ReaderPlan.json` records the hashes and changes that setup applies to the reader fetched from Buu420's GitHub fork. `release/Build-ReaderPlan.py` takes the exact upstream archive, a local reference ZIP containing the tested reader and narration, and an output path. It emits references for unchanged and reused source lines. The setup file accepts an optional local copy of the same verified upstream archive. [Pinned fork source](https://github.com/buu420/SparkingZeroAccess/tree/sparking-instinct-reader-5271255)
