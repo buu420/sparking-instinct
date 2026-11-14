@@ -16,6 +16,10 @@ struct ScreenReading {
 
 std::string read_ui_text(std::string_view rendered_text);
 
+namespace ui_detail {
+bool matches_menu_visual(std::string_view root, std::string_view hit, std::string_view visual);
+}
+
 class UiReader {
 public:
     explicit UiReader(GameReader& game) : game_(game) {}

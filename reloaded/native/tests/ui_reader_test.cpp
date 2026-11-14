@@ -35,5 +35,29 @@ int main()
             return EXIT_FAILURE;
         }
     }
+    struct Selection {
+        std::string_view root, hit, visual;
+        bool expected;
+    };
+    constexpr Selection selections[] = {
+        {"WBP_GRP_BS_StageList_DP2_C", "WBP_OBJ_Common_HitBtn_Text_12", "WBP_OBJ_BS_BTN_Menu_DP_12", true},
+        {"WBP_GRP_BS_StageList_DP2_C", "WBP_OBJ_Common_HitBtn_Text_12", "WBP_OBJ_BS_BTN_Menu_DP_11", false},
+        {"WBP_GRP_BS_SetBGM_List_C", "WBP_OBJ_Common_HitButton_01", "WBP_OBJ_BS_SetBGMBTN_01", true},
+        {"WBP_GRP_BS_RuleSetting_DP_C", "WBP_OBJ_Common_HitBtn_Text_01", "WBP_OBJ_BS_SetRuleBTN_01", true},
+        {"WBP_GRP_BS_StageList_DP2_C", "WBP_OBJ_Common_HitBtn_Text_01", "WBP_OBJ_BS_SetRuleBTN_01", false},
+        {"WBP_GRP_BS_CharaList_DP_C", "WBP_OBJ_Common_HitButton_06", "WBP_OBJ_BS_CharaIcon_06", true},
+        {"WBP_GRP_BS_Top_00_1P_C", "WBP_OBJ_Common_HitBTN_Remove", "WBP_OBJ_Com_BTN_Remove", true},
+        {"WBP_GRP_BS_Top_00_2P_C", "WBP_OBJ_Common_HitBTN_Replace", "WBP_OBJ_Com_BTN_Replace", true},
+        {"WBP_GRP_BS_CharaList_DP_C", "WBP_OBJ_Common_HitBTN_Remove", "WBP_OBJ_Com_BTN_Remove", false},
+        {"WBP_GRP_CSG_Top_00_C", "WBP_OBJ_Common_HitButton_1", "WBP_OBJ_CSG_BTN_00", true},
+        {"WBP_GRP_CSG_Top_00_C", "WBP_OBJ_Common_HitButton_1", "WBP_OBJ_CSG_BTN_01", false},
+    };
+    for (const auto& test : selections) {
+        if (sparking::ui_detail::matches_menu_visual(test.root, test.hit, test.visual) != test.expected) {
+            std::cerr << "Unexpected hit target pairing for " << test.root << ", " << test.hit
+                      << ", " << test.visual << '\n';
+            return EXIT_FAILURE;
+        }
+    }
     return EXIT_SUCCESS;
 }

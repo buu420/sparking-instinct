@@ -216,8 +216,12 @@ void Runtime::sample(Clock::time_point now)
     peak_ms_ = (std::max)(peak_ms_, elapsed);
     if (stats_since_ == Clock::time_point{}) stats_since_ = now;
     if (now - stats_since_ >= stats_interval) {
-        report_("Reader timing: " + std::to_string(total_ms_ / polls_) + " ms average, " +
-                std::to_string(peak_ms_) + " ms maximum, " + std::to_string(polls_) + " samples.");
+        auto timing = "Reader timing: " + std::to_string(total_ms_ / polls_) + " ms average, " +
+                      std::to_string(peak_ms_) + " ms maximum, " + std::to_string(polls_) + " samples.";
+        if (screen_.root) timing += " Screen: " + engine_.class_name(screen_.root) + ".";
+        timing += " Items: " + std::to_string(items_.size()) + ".";
+        if (screen_.focus) timing += " Focus: " + engine_.class_name(screen_.focus) + ".";
+        report_(timing);
         stats_since_ = now;
         total_ms_ = peak_ms_ = 0;
         polls_ = 0;
@@ -242,10 +246,20 @@ void Runtime::review(int direction)
     speak(items_[review_index_]);
 }
 
-void Runtime::dump(bool battle) const
+void Runtime::dump(bool battle)
 {
-    report_(battle ? "Battle HUD review:" : "Screen review:");
-    for (const auto& item : (battle ? hud_.items : items_)) report_(item);
+    const auto& lines = battle ? hud_.items : items_;
+    report_(std::string(battle ? "Battle HUD review, " : "Screen review, ") +
+            std::to_string(lines.size()) + " items.");
+    if (screen_.root)
+        report_("Screen root: " + engine_.class_name(screen_.root));
+    if (screen_.focus)
+        report_("Screen focus: " + engine_.class_name(screen_.focus) + " " + engine_.name_of(screen_.focus));
+    if (!battle) {
+        for (const auto root : game_.viewport_roots())
+            report_("Visible root: " + engine_.class_name(root));
+    }
+    for (const auto& item : lines) report_(item);
 }
 
 void Runtime::toggle_subtitles()

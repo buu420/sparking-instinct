@@ -32,7 +32,7 @@ private:
     void hotkey(int key);
     bool speak(std::string_view message, bool interrupt = true);
     void review(int direction);
-    void dump(bool battle) const;
+    void dump(bool battle);
     void toggle_subtitles();
 
     Unreal& engine_;
