@@ -16,6 +16,7 @@ public:
     bool screen_changed(ObjectRef root, ObjectRef focus, const std::string& value);
     bool tutorial_due(const std::string& value, Clock::time_point now);
     bool subtitle_changed(const std::string& value);
+    bool battle_help_changed(const std::string& value);
     void update_hud(std::span<const std::string> visible, std::span<const std::string> changes,
                     Clock::time_point now);
     std::string pending_hud() const;
@@ -32,11 +33,13 @@ private:
     std::string screen_;
     std::string tutorial_;
     std::string subtitle_;
+    std::string battle_help_;
     std::vector<HudLine> hud_;
     Clock::time_point next_tutorial_{};
     unsigned missing_screen_{};
     unsigned missing_tutorial_{};
     unsigned missing_subtitle_{};
+    unsigned missing_battle_help_{};
 };
 
 }

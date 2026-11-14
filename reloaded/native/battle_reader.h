@@ -29,6 +29,7 @@ private:
     struct Fighter {
         ObjectRef pawn{};
         std::optional<int> health, ki, skill;
+        ObjectRef sparking_meter{};
         std::optional<bool> sparking;
         std::string combo;
         bool combo_announced{};

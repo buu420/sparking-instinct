@@ -20,6 +20,7 @@ constexpr std::size_t hp_value = 0x488;              // USSHPGauge::SetHP, 14272
 constexpr std::size_t sp_value = 0x49c;              // USSSPGauge::SetSPGaugeValue, 142721f90
 constexpr std::size_t sp_segment = 0x490;            // USSSPGauge::SetMaxValue, 142721d80
 constexpr std::size_t stock_count = 0x4ac;           // USSBlastGauge::SetStockCount, 1427225c0
+constexpr std::size_t sparking_child = 0x458;        // HUD follows the bound inner widget, 142725240/142725920
 constexpr std::size_t sparking_mode = 0x488;         // USSSparkingGauge::ChangeSparkingActive, 141fd6dd0
 constexpr std::size_t sparking_capacity = 0x500;     // USSSparkingGauge::SetMaxValue, 142721e40
 constexpr std::size_t sparking_fill = 0x504;         // USSSparkingGauge::SetSparkingChargeValue, 1427224b0
@@ -143,7 +144,8 @@ BattleContext current_battle(const VisibleWidgets& screen)
 }
 
 struct SideWidgets {
-    ObjectRef main, hp, ki, skill, sparking, combo, guide;
+    ObjectRef main, hp, ki, skill, sparking_meter, combo, guide;
+    bool has_sparking_surface{};
 };
 
 struct BattleWidgets {
@@ -152,14 +154,16 @@ struct BattleWidgets {
 };
 
 struct DisplaySides {
-    std::string_view prefix, main, ki, skill, combo, guide;
+    std::string_view prefix, main, ki, skill, sparking, combo, guide;
 };
 
 constexpr DisplaySides battle_sides[]{
     {"HUDWidgetSet.P1", "WBP_Rep_MainGauge_P1_C", "WBP_GRP_SpGauge_P1_C",
-     "WBP_Rep_BuGauge2_P1_C", "WBP_Rep_ComboSet_P1_C", "WBP_Rep_SkillGuideSet_P1_C"},
+     "WBP_Rep_BuGauge2_P1_C", "WBP_OBJ_KingGauge_P1_C", "WBP_Rep_ComboSet_P1_C",
+     "WBP_Rep_SkillGuideSet_P1_C"},
     {"HUDWidgetSet.P2", "WBP_Rep_MainGauge_P2_C", "WBP_GRP_SpGauge_P2_C",
-     "WBP_Rep_BuGauge2_P2_C", "WBP_Rep_ComboSet_P2_C", "WBP_Rep_SkillGuideSet_P2_C"}
+     "WBP_Rep_BuGauge2_P2_C", "WBP_OBJ_KingGauge_P2_C", "WBP_Rep_ComboSet_P2_C",
+     "WBP_Rep_SkillGuideSet_P2_C"}
 };
 
 ObjectRef viewport_widget(const VisibleWidgets& screen, std::string_view name, std::string_view type)
@@ -191,6 +195,31 @@ ObjectRef widget_field(const VisibleWidgets& screen, ObjectRef parent, std::stri
     return screen.is_a(widget, type) && screen.on_screen(widget) ? widget : ObjectRef{};
 }
 
+ObjectRef sparking_widget(const VisibleWidgets& screen, const BattleContext& context, ObjectRef main,
+                          const std::string& field, std::string_view class_name)
+{
+    auto& game = screen.game;
+    const auto from_main = game.object(main, "SparkingGauge");
+    const auto registered = registered_widget(screen, context, field, "SSSparkingGauge");
+    const auto special = game.object(main, "SpecialGaugeSet.SparkingGauge");
+    auto painted = viewport_widget(screen, class_name, "SSSparkingGauge");
+    if (painted && from_main && painted != from_main && painted != registered && painted != special)
+        painted = {};
+    for (const auto candidate : {from_main, registered, special, painted}) {
+        if (!screen.is_a(candidate, "SSSparkingGauge") || !screen.on_screen(candidate)) continue;
+        const auto child = read<Address>(candidate.address + sparking_child);
+        if (!child) continue;
+        if (*child) {
+            const auto meter = game.engine().capture(*child);
+            if (screen.is_a(meter, "SSSparkingGauge") && meter != candidate) return meter;
+            continue;
+        }
+        if (candidate != from_main && game.engine().class_name(candidate) != class_name)
+            return candidate;
+    }
+    return {};
+}
+
 BattleWidgets visible_battle(const VisibleWidgets& screen, const BattleContext& context)
 {
     auto& game = screen.game;
@@ -206,13 +235,10 @@ BattleWidgets visible_battle(const VisibleWidgets& screen, const BattleContext& 
         if (!side.ki) side.ki = widget_field(screen, side.main, "SPGauge", "SSSPGauge");
         side.skill = registered_widget(screen, context, prefix + "BlastGaugeSet", "SSBlastGauge");
         if (!side.skill) side.skill = widget_field(screen, side.main, "BlastGauge", "SSBlastGauge");
-        side.sparking = registered_widget(screen, context, prefix + "SparkingGauge", "SSSparkingGauge");
-        if (!side.sparking)
-            side.sparking = widget_field(screen, side.main, "SparkingGauge", "SSSparkingGauge");
-        if (!side.sparking) {
-            const auto outer_gauge = game.object(side.main, "SparkingGauge");
-            side.sparking = widget_field(screen, outer_gauge, "SparkingGauge", "SSSparkingGauge");
-        }
+        if (context.display_side >= 0)
+            side.sparking_meter = sparking_widget(screen, context, side.main,
+                                                 prefix + "SparkingGauge", names.sparking);
+        side.has_sparking_surface = static_cast<bool>(side.sparking_meter);
         side.guide = registered_widget(screen, context, prefix + "SkillGuideWidget", "SSSkillGuideSet");
         side.combo = registered_widget(screen, context, prefix + "ComboSeteWidget", "SSComboSet");
         // Training can attach the charge guide on its own and leave the HUD registration empty.
@@ -293,7 +319,7 @@ std::string time_text(int value)
 
 struct SparkingGauge {
     std::uint8_t mode{};
-    int percent{};
+    std::optional<int> percent;
 };
 
 std::optional<SparkingGauge> sparking(const VisibleWidgets& screen, ObjectRef gauge)
@@ -302,12 +328,11 @@ std::optional<SparkingGauge> sparking(const VisibleWidgets& screen, ObjectRef ga
     const auto mode = read<std::uint8_t>(gauge.address + sparking_mode);
     if (!mode || *mode > 2) return {};
     if (*mode == 0) return SparkingGauge{};
+    if (!screen.on_screen(gauge)) return {};
     const auto max = read<float>(gauge.address + sparking_capacity);
     const auto fill = read<float>(gauge.address + sparking_fill);
-    if (!max || !fill) return {};
-    const auto percent = scaled_value(*fill, *max / 100, 100);
-    if (!percent || !screen.on_screen(gauge)) return {};
-    return SparkingGauge{*mode, *percent};
+    const auto percent = max && fill ? scaled_value(*fill, *max / 100, 100) : std::nullopt;
+    return SparkingGauge{*mode, percent};
 }
 
 std::optional<int> digits(const VisibleWidgets& screen, ObjectRef number,
@@ -437,7 +462,7 @@ BattleReading BattleReader::sample(std::span<const ObjectRef> roots, Clock::time
     const auto context = current_battle(screen);
     const auto widgets = visible_battle(screen, context);
     result.active = widgets.timer || widgets.result || std::ranges::any_of(widgets.sides, [](const auto& side) {
-        return side.main || side.hp || side.ki || side.skill || side.sparking || side.combo || side.guide;
+        return side.main || side.hp || side.ki || side.skill || side.has_sparking_surface || side.combo || side.guide;
     });
 
     const auto battle_result = widgets.result ? join(visible_text(screen, widgets.result), ". ") : std::string{};
@@ -525,15 +550,18 @@ BattleReading BattleReader::sample(std::span<const ObjectRef> roots, Clock::time
             meter(fighter.ki, ki(screen, side.ki), [&](int x) { return gauge_text(owner, "ki", x); }, 1);
             meter(fighter.skill, skill(screen, side.skill),
                   [&](int x) { return std::string(owner) + " skill count, " + std::to_string(x); }, 1);
-            if (const auto gauge = sparking(screen, side.sparking)) {
+            if (const auto gauge = sparking(screen, side.sparking_meter)) {
                 const bool active = gauge->mode == 2;
-                if (gauge->mode)
-                    result.items.push_back(std::string(owner) +
-                        (active ? " Sparking mode, " : " Sparking charge, ") +
-                        std::to_string(gauge->percent) + " percent");
-                if (fighter.sparking.value_or(false) != active)
-                    result.announcements.push_back(std::string(owner) +
-                        (active ? " Sparking mode" : " Sparking mode ended"));
+                const auto mode_text = std::string(owner) + " Sparking mode";
+                if (active) result.items.push_back(mode_text);
+                if (gauge->mode && gauge->percent)
+                    result.items.push_back(std::string(owner) + (active ? " Sparking gauge, " : " Sparking charge, ") +
+                                           std::to_string(*gauge->percent) + " percent");
+                const bool previously_active = fighter.sparking_meter == side.sparking_meter &&
+                                               fighter.sparking.value_or(false);
+                if (active != previously_active)
+                    result.announcements.push_back(active ? mode_text : mode_text + " ended");
+                fighter.sparking_meter = side.sparking_meter;
                 fighter.sparking = active;
             }
 

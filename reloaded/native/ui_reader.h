@@ -11,7 +11,7 @@ class GameReader;
 struct ScreenReading {
     ObjectRef root{}, focus{};
     std::vector<std::string> items;
-    std::string announcement, tutorial, subtitle;
+    std::string announcement, tutorial, subtitle, battle_help;
 };
 
 std::string read_ui_text(std::string_view rendered_text);
@@ -19,6 +19,7 @@ std::string read_ui_text(std::string_view rendered_text);
 namespace ui_detail {
 bool matches_menu_visual(std::string_view root, std::string_view hit, std::string_view visual);
 std::string compose_help_prompt(std::string_view combined, std::string_view keys, std::string_view action);
+bool matches_training_reset_prompt(std::string_view painted);
 }
 
 class UiReader {

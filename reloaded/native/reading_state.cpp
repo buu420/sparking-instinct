@@ -7,8 +7,23 @@ namespace {
 constexpr auto tutorial_repeat = std::chrono::seconds(20);
 constexpr unsigned missing_samples = 3;
 constexpr auto hud_value_lifetime = std::chrono::seconds(6);
-constexpr auto hud_transition_lifetime = std::chrono::milliseconds(650);
+constexpr auto hud_transition_lifetime = std::chrono::seconds(2);
 constexpr std::size_t maximum_hud_lines = 24;
+
+bool changed_text(std::string& previous, unsigned& missing, const std::string& value)
+{
+    if (value.empty()) {
+        if (++missing >= missing_samples) {
+            previous.clear();
+            missing = 0;
+        }
+        return false;
+    }
+    missing = 0;
+    if (previous == value) return false;
+    previous = value;
+    return true;
+}
 }
 
 void ReadingState::reset()
@@ -53,17 +68,12 @@ bool ReadingState::tutorial_due(const std::string& value, Clock::time_point now)
 
 bool ReadingState::subtitle_changed(const std::string& value)
 {
-    if (value.empty()) {
-        if (++missing_subtitle_ >= missing_samples) {
-            subtitle_.clear();
-            missing_subtitle_ = 0;
-        }
-        return false;
-    }
-    missing_subtitle_ = 0;
-    if (subtitle_ == value) return false;
-    subtitle_ = value;
-    return true;
+    return changed_text(subtitle_, missing_subtitle_, value);
+}
+
+bool ReadingState::battle_help_changed(const std::string& value)
+{
+    return changed_text(battle_help_, missing_battle_help_, value);
 }
 
 void ReadingState::update_hud(std::span<const std::string> visible, std::span<const std::string> changes,
@@ -82,8 +92,8 @@ void ReadingState::update_hud(std::span<const std::string> visible, std::span<co
     for (const auto& text : changes) {
         if (text.empty() || std::ranges::find(hud_, text, &HudLine::text) != hud_.end()) continue;
         if (hud_.size() >= maximum_hud_lines) break;
-        const bool meter = is_visible(text);
-        hud_.push_back({text, now + (meter ? hud_value_lifetime : hud_transition_lifetime), meter});
+        const bool tied_to_item = is_visible(text);
+        hud_.push_back({text, now + (tied_to_item ? hud_value_lifetime : hud_transition_lifetime), tied_to_item});
     }
 }
 

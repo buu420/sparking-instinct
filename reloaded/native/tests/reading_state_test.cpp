@@ -62,9 +62,16 @@ int main()
     const std::array transition{std::string("Your Sparking mode ended")};
     state.update_hud(two_bars, transition, start + 8s);
     check(state.pending_hud() == transition[0], "A recent visible-gauge transition was dropped");
-    state.update_hud(two_bars, {}, start + 9s);
+    state.update_hud(two_bars, {}, start + 10s);
     check(state.pending_hud().empty(), "A stale gauge transition remained pending");
-    state.update_hud(two_bars, two_bars, start + 10s);
-    state.update_hud({}, {}, start + 11s);
+    state.update_hud(two_bars, two_bars, start + 11s);
+    state.update_hud({}, {}, start + 12s);
     check(state.pending_hud().empty(), "The hidden HUD retained a pending meter");
+
+    check(state.battle_help_changed("LB + Menu Reset Positions"), "First visible battle help was missed");
+    check(!state.battle_help_changed(""), "An empty help prompt was announced");
+    check(!state.battle_help_changed("LB + Menu Reset Positions"), "One hidden frame repeated battle help");
+    check(state.battle_help_changed("Q + Tab Reset Positions"), "A change of input device was missed");
+    state.reset();
+    check(state.battle_help_changed("Q + Tab Reset Positions"), "Battle help stayed silent in the next match");
 }

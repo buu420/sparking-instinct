@@ -69,5 +69,26 @@ int main()
         std::cerr << "Guide prompt must use the complete visible binding and action\n";
         return EXIT_FAILURE;
     }
+    struct ResetPrompt {
+        std::string_view painted;
+        bool expected;
+    };
+    constexpr ResetPrompt reset_prompts[] = {
+        {R"(<icon id="Pad_06" table="XSX"/>+<icon id="Pad_00" table="XSX"/> Reset Positions)", true},
+        {R"(<icon id="Pad_Win" table="Windows" text="Q"/>+<icon id="Key_19" table="Windows"/> Reset Positions)", true},
+        {R"(<icon id="Pad_06" table="PS5"/>＋<icon id="Pad_00" table="PS5"/> 位置をリセット)", true},
+        {R"(<icon id="Pad_06" table="XSX"/><icon id="Pad_10" table="XSX"/> Change Screen)", false},
+        {R"(<icon id="Pad_00" table="XSX"/> Options)", false},
+        {R"(<icon id="Key_19" table="Windows"/> Options)", false},
+        {R"(<icon id="Pad_06" table="XSX"/>+<icon id="Pad_00" table="PS5"/> Reset Positions)", false},
+        {R"(<icon id="Pad_06" table="XSX"/>+<icon id="Pad_00" table="XSX"/> )", false},
+        {"Reset Positions", false},
+    };
+    for (const auto& test : reset_prompts) {
+        if (sparking::ui_detail::matches_training_reset_prompt(test.painted) != test.expected) {
+            std::cerr << "Unexpected battle guide classification for " << test.painted << '\n';
+            return EXIT_FAILURE;
+        }
+    }
     return EXIT_SUCCESS;
 }

@@ -15,6 +15,7 @@ using namespace sparking;
 struct Widget {
     std::string type, name;
     std::string blueprint;
+    std::int32_t index{};
     std::map<std::string, ObjectRef, std::less<>> refs;
     std::map<std::string, std::vector<ObjectRef>, std::less<>> arrays;
     std::map<std::string, double, std::less<>> numbers;
@@ -35,9 +36,10 @@ ObjectRef add(std::string type, std::string name = {})
     auto widget = std::make_unique<Widget>();
     widget->name = std::move(name);
     widget->type = std::move(type);
+    const auto index = widget->index = static_cast<std::int32_t>(records.size() + 1);
     const auto address = reinterpret_cast<Address>(widget->storage.data());
     records.emplace(address, std::move(widget));
-    return {address, static_cast<std::int32_t>(records.size()), 1};
+    return {address, index, 1};
 }
 
 Widget& data(ObjectRef target) { return *records.at(target.address); }
@@ -72,6 +74,10 @@ bool contains(const std::vector<std::string>& values, std::string_view expected)
 
 namespace sparking {
 ObjectRef Unreal::game_instance() { return instance; }
+ObjectRef Unreal::capture(Address address)
+{
+    return records.contains(address) ? ObjectRef{address, data({address}).index, 1} : ObjectRef{};
+}
 bool Unreal::live(ObjectRef target) const { return records.contains(target.address); }
 ObjectRef Unreal::outer(ObjectRef target) { return target ? data(target).outer : ObjectRef{}; }
 ObjectRef Unreal::find_class(std::string_view name)
@@ -249,7 +255,12 @@ int main()
     parent(stock_image, stock);
 
     const auto sparking = add("SSSparkingGauge");
-    data(hud_root).refs["HUDWidgetSet.P1SparkingGauge"] = sparking;
+    const auto sparking_wrapper = add("SSSparkingGauge");
+    data(sparking_wrapper).blueprint = "WBP_OBJ_KingGauge_P1_C";
+    data(hud_root).refs["HUDWidgetSet.P1SparkingGauge"] = sparking_wrapper;
+    data(main).refs["SparkingGauge"] = sparking_wrapper;
+    parent(sparking, sparking_wrapper);
+    store(sparking_wrapper, 0x458, sparking.address);
     store(sparking, 0x488, std::uint8_t{1});
     store(sparking, 0x500, 5000.0f);
     store(sparking, 0x504, 2500.0f);
@@ -306,7 +317,7 @@ int main()
     frame = reader.sample(std::array{main});
     check(contains(frame.announcements, "Your health, 3 bars"), "visible gauge change");
 
-    frame = reader.sample(std::array{main, sp, stock, sparking});
+    frame = reader.sample(std::array{main, sp, stock, sparking_wrapper});
     check(contains(frame.items, "Your ki, 2 bars"), "visible native Ki segments");
     check(contains(frame.items, "Your skill count, 2"), "visible native Skill Count");
     check(contains(frame.items, "Your Sparking charge, 50 percent"), "visible native Sparking charge");
@@ -319,12 +330,32 @@ int main()
     data(player).flags["IsBattleKeyPressed11"] = false;
     data(segments.back()).shown = false;
     data(stock_image).numbers["Brush.DrawAs"] = 0;
-    frame = reader.sample(std::array{main, sp, stock, sparking});
+    frame = reader.sample(std::array{main, sp, stock, sparking_wrapper});
     check(!contains(frame.items, "Your ki, 3 bars"), "hidden Ki segment prevents an inferred count");
     check(!contains(frame.items, "Your skill count, 3"), "undrawn stock number");
     store(sparking, 0x488, std::uint8_t{2});
-    frame = reader.sample(std::array{main, sparking});
+    frame = reader.sample(std::array{main, sparking_wrapper});
     check(contains(frame.announcements, "Your Sparking mode"), "visible native Sparking activation");
+    check(contains(frame.items, "Your Sparking mode") &&
+          contains(frame.items, "Your Sparking gauge, 50 percent"), "stable activation and visible fill");
+    store(sparking, 0x504, 2200.0f);
+    frame = reader.sample(std::array{main, sparking_wrapper});
+    check(contains(frame.items, "Your Sparking mode") &&
+          contains(frame.items, "Your Sparking gauge, 44 percent") && frame.announcements.empty(),
+          "fill movement keeps stable active state without repeated speech");
+
+    data(sparking).shown = false;
+    frame = reader.sample(std::array{main, sparking_wrapper});
+    check(!contains(frame.items, "Your Sparking mode") && frame.announcements.empty(),
+          "hidden inner gauge cannot announce its active state or infer an end");
+    store(sparking, 0x488, std::uint8_t{0});
+    data(sparking_wrapper).shown = false;
+    frame = reader.sample(std::array{main, sparking_wrapper});
+    check(frame.announcements.empty(), "hiding the entire representation prevents end speech");
+    data(sparking_wrapper).shown = true;
+    frame = reader.sample(std::array{main, sparking_wrapper});
+    check(contains(frame.announcements, "Your Sparking mode ended"), "native normal state in visible owned HUD");
+    check(reader.sample(std::array{main, sparking_wrapper}).announcements.empty(), "one observed ending");
 
     const auto timer = add("SSBattleTimer");
     const auto digit0 = add("SSSingleNumber");

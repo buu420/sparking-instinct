@@ -50,10 +50,10 @@ bool save_subtitles(const std::filesystem::path& path, bool enabled)
     return false;
 }
 
-std::string together(const std::vector<std::string>& items)
+std::string together(const auto& items)
 {
     std::string result;
-    for (const auto& item : items) {
+    for (const std::string_view item : items) {
         if (item.empty()) continue;
         if (!result.empty() && result.size() + item.size() + 2 > max_utterance) break;
         if (!result.empty()) result += ". ";
@@ -61,7 +61,7 @@ std::string together(const std::vector<std::string>& items)
         else {
             std::size_t end = max_utterance;
             while (end && (static_cast<unsigned char>(item[end]) & 0xc0) == 0x80) --end;
-            result.append(item, 0, end);
+            result += item.substr(0, end);
             break;
         }
     }
@@ -195,16 +195,22 @@ void Runtime::sample(Clock::time_point now)
     const bool changed = reading_.screen_changed(screen_.root, screen_.focus, screen_.announcement);
     const bool tutorial = reading_.tutorial_due(screen_.tutorial, now);
     const bool subtitle = reading_.subtitle_changed(screen_.subtitle);
-    bool speaking = false;
-    if (changed && screen_.announcement != screen_.tutorial && screen_.announcement != screen_.subtitle)
-        speaking = speak(screen_.announcement);
-    if (tutorial) speaking = speak(screen_.tutorial, !speaking) || speaking;
-    if (subtitle && subtitles_ && screen_.subtitle != screen_.tutorial)
-        speaking = speak(screen_.subtitle, !speaking) || speaking;
-    if (!hud_.guide.empty()) {
-        speaking = speak(hud_.guide, !speaking) || speaking;
+    const bool help = reading_.battle_help_changed(screen_.battle_help);
+    const bool menu = changed && screen_.announcement != screen_.tutorial && screen_.announcement != screen_.subtitle;
+    const std::array<std::string_view, 5> lines{
+        menu ? std::string_view(screen_.announcement) : std::string_view{},
+        tutorial ? std::string_view(screen_.tutorial) : std::string_view{},
+        help ? std::string_view(screen_.battle_help) : std::string_view{},
+        hud_.guide,
+        subtitle && subtitles_ && screen_.subtitle != screen_.tutorial ?
+            std::string_view(screen_.subtitle) : std::string_view{}
+    };
+    // Battle cues share the speech queue so changing HUD text or dialogue
+    // cannot cancel the Reset Positions prompt or the moves for this hold.
+    const bool in_battle = (hud_.active && !hud_.items.empty()) || !screen_.battle_help.empty();
+    const bool speaking = speak(together(lines), !in_battle);
+    if (!hud_.guide.empty())
         next_battle_speech_ = now + battle_speech_gap;
-    }
     if (!speaking && now >= next_battle_speech_) {
         const auto pending = reading_.pending_hud();
         if (!pending.empty() && !speech::speaking() && speak(pending, false)) {
