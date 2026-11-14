@@ -2,11 +2,6 @@
 #include "prism_api.h"
 #include "speech_mailbox.h"
 
-extern "C" {
-#include <lauxlib.h>
-#include <lua.h>
-}
-
 #include <objbase.h>
 
 #include <array>
@@ -160,7 +155,8 @@ private:
 
     bool can_deliver(const Message& message) const
     {
-        return mailbox_.can_deliver(message) && game_has_foreground();
+        return mailbox_.can_deliver(message) &&
+               (message.kind == Message::Kind::stop || game_has_foreground());
     }
 
     void update_speaking(const PrismApi& api, PrismBackend* backend)
@@ -291,53 +287,6 @@ std::shared_ptr<Worker> worker() noexcept
     return service ? service->active.load() : nullptr;
 }
 
-int lua_say(lua_State* state)
-{
-    std::size_t length = 0;
-    const char* text = luaL_checklstring(state, 1, &length);
-    const bool interrupt = lua_gettop(state) < 2 || lua_toboolean(state, 2);
-    bool accepted = false;
-    try {
-        if (auto instance = worker()) {
-            accepted = instance->say(std::string_view(text, length), interrupt);
-        }
-    } catch (...) {
-    }
-    lua_pushboolean(state, accepted);
-    return 1;
-}
-
-int lua_stop(lua_State*)
-{
-    if (auto instance = worker()) {
-        instance->stop();
-    }
-    return 0;
-}
-
-int lua_is_speaking(lua_State* state)
-{
-    bool speaking = false;
-    if (const auto instance = worker()) {
-        speaking = instance->speaking();
-    }
-    lua_pushboolean(state, speaking);
-    return 1;
-}
-
-int lua_detect(lua_State* state)
-{
-    std::array<char, 128> name{};
-    if (const auto instance = worker()) {
-        name = instance->name();
-    }
-    if (name[0]) {
-        lua_pushstring(state, name.data());
-    } else {
-        lua_pushnil(state);
-    }
-    return 1;
-}
 }
 
 bool start(const std::filesystem::path& dll, const std::filesystem::path& log) noexcept
@@ -359,6 +308,27 @@ bool start(const std::filesystem::path& dll, const std::filesystem::path& log) n
     }
 }
 
+bool say(std::string_view text, bool interrupt) noexcept
+{
+    try {
+        if (auto instance = worker()) return instance->say(text, interrupt);
+    } catch (...) {
+    }
+    return false;
+}
+
+void stop() noexcept
+{
+    if (auto instance = worker()) instance->stop();
+}
+
+bool speaking() noexcept
+{
+    if (auto instance = worker()) return instance->speaking();
+    return false;
+}
+
+
 void set_foreground(bool foreground) noexcept
 {
     if (const auto instance = worker()) {
@@ -376,18 +346,4 @@ void shutdown() noexcept
     }
 }
 
-}
-
-extern "C" int luaopen_sparking_prism(lua_State* state)
-{
-    using namespace sparking::speech;
-    const luaL_Reg functions[] = {
-        {"say", lua_say},
-        {"stop", lua_stop},
-        {"is_speaking", lua_is_speaking},
-        {"detect", lua_detect},
-        {nullptr, nullptr}
-    };
-    luaL_newlib(state, functions);
-    return 1;
 }

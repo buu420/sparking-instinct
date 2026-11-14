@@ -1,9 +1,12 @@
 #pragma once
 
-#include "lua_unreal.h"
-#include "unreal.h"
+#include "battle_reader.h"
+#include "game_reader.h"
+#include "movie_reader.h"
+#include "reading_state.h"
+#include "ui_reader.h"
 
-#include <chrono>
+#include <array>
 #include <filesystem>
 #include <functional>
 
@@ -13,52 +16,47 @@ class Runtime {
 public:
     using Report = std::function<void(std::string_view)>;
 
-    Runtime(Unreal& engine, std::filesystem::path scripts,
-            std::filesystem::path game_bin, Report report);
-    ~Runtime();
-
-    bool start();
+    Runtime(Unreal& engine, const std::filesystem::path& mod,
+            const std::filesystem::path& game_bin, Report report);
     void frame(bool foreground);
     void map_start();
     void map_end();
     void foreground_lost();
 
 private:
-    using Clock = std::chrono::steady_clock;
+    using Clock = ReadingState::Clock;
 
-    static Runtime& from(lua_State* state);
-    static int log(lua_State* state);
-    static int wall_clock(lua_State* state);
-    static int find_module(lua_State* state);
-    static int add_timer(lua_State* state);
-    static int add_key(lua_State* state);
-    static int has_key(lua_State* state);
-    static int add_map_pre(lua_State* state);
-    static int add_map_post(lua_State* state);
-    bool read_script(const std::filesystem::path& file, const char* chunk_name);
-    bool run(int arguments, int results, std::string_view label);
-    bool callback(int reference, std::string_view label, bool stop_on_true = false);
-    void reset_screen();
+    void reset();
+    void sample(Clock::time_point now);
     void sample_keys(bool dispatch);
+    void hotkey(int key);
+    bool speak(std::string_view message, bool interrupt = true);
+    void review(int direction);
+    void dump(bool battle) const;
+    void toggle_subtitles();
 
     Unreal& engine_;
-    LuaUnreal native_{};
-    std::filesystem::path scripts_;
-    std::filesystem::path game_bin_;
+    GameReader game_;
+    UiReader ui_;
+    BattleReader battle_;
+    MovieReader movie_;
+    ReadingState reading_;
+    std::filesystem::path preference_;
     Report report_;
-    lua_State* state_{};
-    Clock::time_point origin_{Clock::now()};
-    Clock::time_point due_{};
-    std::chrono::milliseconds interval_{};
-    int timer_{-2};
-    int map_pre_{-2};
-    int map_post_{-2};
-    int screen_reset_{-2};
+    ScreenReading screen_{};
+    BattleReading hud_{};
+    std::vector<std::string> items_;
+    std::size_t review_index_{};
+    Clock::time_point next_{};
+    Clock::time_point next_movie_{};
+    Clock::time_point stats_since_{};
+    Clock::time_point next_battle_speech_{};
     unsigned map_depth_{};
-    bool foreground_{};
-    std::array<int, 7> keys_{};
+    unsigned polls_{};
+    double total_ms_{}, peak_ms_{};
+    bool foreground_{}, movie_visible_{}, debug_{};
+    bool subtitles_{true};
     std::array<bool, 7> down_{};
 };
 
 }
-

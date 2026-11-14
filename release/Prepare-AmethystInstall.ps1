@@ -32,15 +32,4 @@ foreach ($root in @($gameBin,$manager)) {
     }
 }
 
-$scripts = Get-SafeReloadedPath $stagedManager "$SparkingModFolder\Scripts"
-$planPath = Get-SafeReloadedPath $PSScriptRoot 'ReaderPlan.json'
-foreach ($file in (Get-ReloadedJson $planPath).files) {
-    if (Test-Path -LiteralPath (Get-SafeReloadedPath $scripts $file.path)) {
-        throw "The Amethyst package already contains a reader file. $($file.path)"
-    }
-    if (Test-Path -LiteralPath (Get-SafeReloadedPath $manager "$SparkingModFolder\Scripts\$($file.path)")) {
-        throw "An existing local reader file needs to be removed with its own installer. $($file.path)"
-    }
-}
-& (Join-Path $PSScriptRoot 'Prepare-Reader.ps1') -PlanPath $planPath -Destination $scripts
 Assert-SparkingGameClosed

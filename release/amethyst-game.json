@@ -2,19 +2,28 @@
   "gameId": "dragon-ball-sparking-zero",
   "displayName": "DRAGON BALL: Sparking! ZERO",
   "modName": "Sparking Instinct (Beta)",
-  "description": "Sparking Instinct adds screen reader speech to supported menus, character selection, training, controls, battle gauges and story screens. Jessica Tegner and the Sparking Zero Access contributors created the original Lua reader. Buu420 ported the mod to Reloaded II and Prism and made the audio descriptions for the main opening and post-tutorial movie.\n\nRequires Windows x64 and Steam build 24953175 (game version 3022.021.003.012.015). Close the game before install, update, or removal. Setup automatically downloads and verifies the reader and narration from Buu420's GitHub fork. You can install and play without the AccessForge app. Remove a standalone Reloaded preview or active UE4SS loader through its own installer first. Once installed, start the game as usual from Steam or the Steam desktop shortcut.\n\nF6 reads the screen. F7 and F8 review the previous and next item. F9 toggles automatic subtitle speech and can also mute unvoiced text in subtitle windows. Visible tutorial instructions repeat every 20 seconds.\n\nTested with NVDA in the title screen, menus, offline training and controls. Story coverage, player-two gauges and audio description timing need more live testing.",
+  "description": "Sparking Instinct reads supported menus, character selection, training, controls, battle gauges, and story screens. Buu420 made the audio descriptions for the main opening and post-tutorial movie.\n\nRequires Windows x64 and Steam build 24953175 (game version 3022.021.003.012.015). The ZIP includes the native reader, narration, Reloaded II, and Prism. Amethyst can install the .NET Desktop Runtime separately if needed. Close the game before installing, updating, or uninstalling. Start the game from Steam or its desktop shortcut.\n\nF6 reads the screen. F7 and F8 review items. F9 toggles automatic subtitle speech. Visible tutorial instructions repeat every 20 seconds.",
   "steamAppId": "1790600",
   "exeName": "SparkingZERO.exe",
   "probeRules": [
-    {"type": "fileExists", "relativePath": "SparkingZERO/Binaries/Win64/SparkingZERO-Win64-Shipping.exe"}
+    {
+      "type": "fileExists",
+      "relativePath": "SparkingZERO/Binaries/Win64/SparkingZERO-Win64-Shipping.exe"
+    }
   ],
-  "tags": ["screen-reader"],
-  "languages": ["en"],
+  "tags": [
+    "screen-reader"
+  ],
+  "languages": [
+    "en"
+  ],
   "dependencies": [
     {
       "id": "dotnet-9-desktop-x64",
       "type": "system",
-      "targetPlatforms": ["windows"],
+      "targetPlatforms": [
+        "windows"
+      ],
       "minVersion": "9.0.8",
       "check": {
         "registryKey": "SOFTWARE\\dotnet\\Setup\\InstalledVersions\\x64\\sharedfx\\Microsoft.WindowsDesktop.App",
@@ -25,7 +34,11 @@
         "downloadUrl": "https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/9.0.23/windowsdesktop-runtime-9.0.23-win-x64.exe",
         "autoInstall": {
           "kind": "runInstaller",
-          "args": ["/install", "/quiet", "/norestart"],
+          "args": [
+            "/install",
+            "/quiet",
+            "/norestart"
+          ],
           "needsAdmin": true,
           "sha256": "eefb60bd0f3fb33c0787074cebc0467ffba32bcb01088613121649fc3bdb4a27"
         }
@@ -38,9 +51,9 @@
     "executable": "setup/Prepare-AmethystInstall.ps1",
     "needsAdmin": false,
     "failureFatal": true,
-    "what": "Verify the Steam game build, check for another loader, and download and prepare the original Sparking Zero Access reader.",
-    "why": "Sparking Instinct uses build-specific bindings. Setup verifies the original Lua reader by Jessica Tegner and contributors and the audio descriptions by Buu420. Both come from Buu420's GitHub fork.",
-    "modifies": "Reads the selected game folder. Writes verified reader scripts and narration to Amethyst's package staging folder. Amethyst copies and records those files as part of installation.",
+    "what": "Verify the Steam game build and check for another loader before installing Sparking Instinct.",
+    "why": "Sparking Instinct reads game data using build-specific bindings. The check also prevents overwriting another loader.",
+    "modifies": "Reads the game folder and package file list. Amethyst copies and records the bundled files after this check.",
     "installToGameFolder": false,
     "runOnUpdate": true,
     "runFromGameFolder": false

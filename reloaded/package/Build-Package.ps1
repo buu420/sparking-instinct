@@ -1,7 +1,6 @@
 param(
     [Parameter(Mandatory=$true)][string]$NativeDll,
     [Parameter(Mandatory=$true)][string]$PrismDll,
-    [Parameter(Mandatory=$true)][string]$AudioBridgeDll,
     [Parameter(Mandatory=$true)][string]$AutoStartDll,
     [Parameter(Mandatory=$true)][string]$LocalLoaderDirectory,
     [Parameter(Mandatory=$true)][string]$LocalLoaderSourceArchive,
@@ -18,7 +17,6 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 $project = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $prismLicenses = Join-Path $project 'reloaded\speech\licenses'
 if ((Get-ReloadedHash $PrismDll) -ne $SparkingPrismHash) { throw 'Prism DLL does not match the pinned x64 release.' }
-if ((Get-ReloadedHash $AudioBridgeDll) -ne $SparkingAudioHash) { throw 'Audio description bridge does not match the verified Lua 5.4.7 build.' }
 
 function Assert-X64Pe([string]$Path) {
     $stream = [IO.File]::OpenRead($Path)
@@ -32,7 +30,7 @@ function Assert-X64Pe([string]$Path) {
         if ($reader.ReadUInt32() -ne 0x4550 -or $reader.ReadUInt16() -ne 0x8664) { throw "The payload must be x64. $Path" }
     } finally { $reader.Dispose() }
 }
-foreach ($dll in @($NativeDll,$PrismDll,$AudioBridgeDll,$AutoStartDll)) { Assert-X64Pe $dll }
+foreach ($dll in @($NativeDll,$PrismDll,$AutoStartDll)) { Assert-X64Pe $dll }
 if ((Get-ReloadedHash $AutoStartDll) -eq $SparkingLegacyStartupHash) {
     throw 'The automatic startup DLL matches the retired Candidate 22 proxy.'
 }
@@ -67,11 +65,33 @@ foreach ($file in @(Get-ChildItem -LiteralPath $loaderSource -Recurse -File -For
 $autoStart = Get-SafeReloadedPath $payload $SparkingAutoStartSource
 Copy-ReloadedPackageFile (Resolve-Path -LiteralPath $AutoStartDll).ProviderPath $autoStart (Get-ReloadedHash $AutoStartDll)
 $mod = Get-SafeReloadedPath $payload $SparkingModFolder
-$scripts = Get-SafeReloadedPath $mod 'Scripts'
-[IO.Directory]::CreateDirectory($scripts) | Out-Null
+[IO.Directory]::CreateDirectory($mod) | Out-Null
 [IO.File]::Copy((Resolve-Path -LiteralPath $NativeDll).ProviderPath,(Join-Path $mod 'SparkingZeroAccess.Native.dll'))
-[IO.File]::Copy((Resolve-Path -LiteralPath $PrismDll).ProviderPath,(Join-Path $scripts 'prism.dll'))
-[IO.File]::Copy((Resolve-Path -LiteralPath $AudioBridgeDll).ProviderPath,(Join-Path $scripts 'audio_bridge.dll'))
+[IO.File]::Copy((Resolve-Path -LiteralPath $PrismDll).ProviderPath,(Join-Path $mod 'prism.dll'))
+$narration = Get-SafeReloadedPath $project 'reloaded\narration'
+$audio = Get-SafeReloadedPath $mod 'AudioDescription'
+$cueSheet = Get-SafeReloadedPath $narration 'cue-sheet.json'
+$description = Get-ReloadedJson $cueSheet
+$clips = @{}
+foreach ($film in $description.films) {
+    foreach ($cue in $film.cues) {
+        if ($cue.file -cnotmatch '^AudioDescription/op[23]-[0-9]{2}\.wav$' -or
+            $cue.sha256 -cnotmatch '^[0-9a-fA-F]{64}$') {
+            throw 'The movie description cue sheet has an invalid clip entry.'
+        }
+        $name = $cue.file.Substring('AudioDescription/'.Length)
+        if ($clips.ContainsKey($name)) { throw "The movie description lists $name twice." }
+        $clips[$name] = $cue.sha256
+    }
+}
+if (Compare-Object @($SparkingNarrationFiles | Where-Object { $_ -like '*.wav' }) @($clips.Keys)) {
+    throw 'The movie description cue sheet does not match the bundled clips.'
+}
+Copy-ReloadedPackageFile $cueSheet (Get-SafeReloadedPath $audio 'cue-sheet.json') (Get-ReloadedHash $cueSheet)
+foreach ($clip in $SparkingNarrationFiles | Where-Object { $_ -like '*.wav' }) {
+    $source = Get-SafeReloadedPath $narration $clip
+    Copy-ReloadedPackageFile $source (Get-SafeReloadedPath $audio $clip) $clips[$clip]
+}
 [IO.File]::Copy((Join-Path $PSScriptRoot 'ModConfig.json'),(Join-Path $mod 'ModConfig.json'))
 [IO.File]::WriteAllText((Join-Path $payload 'portable.txt'),'')
 Set-ReloadedJson (Get-SafeReloadedPath $payload $SparkingAppConfigPath) (Get-ReloadedAppConfig)
@@ -80,7 +100,7 @@ $common = @('Reloaded-InstallCommon.ps1','Reloaded-Legacy.ps1','Reloaded-Payload
 foreach ($name in $common) {
     [IO.File]::Copy((Join-Path $PSScriptRoot $name),(Join-Path $payload $name))
 }
-foreach ($name in $common + @('Install-Reloaded.ps1','Install.cmd','Prepare-Reader.ps1','ReaderPlan.json')) {
+foreach ($name in $common + @('Install-Reloaded.ps1','Install.cmd')) {
     [IO.File]::Copy((Join-Path $PSScriptRoot $name),(Join-Path $OutputDirectory $name))
 }
 $discovery = Join-Path $project 'helpers\Game-Install-Location.ps1'
@@ -105,7 +125,6 @@ $dotnetNotices = Get-SafeReloadedPath $notices 'DotNet'
 foreach ($name in @('LICENSE.TXT','THIRD-PARTY-NOTICES.TXT')) {
     [IO.File]::Copy((Get-SafeReloadedPath $dotnetSource $name),(Join-Path $dotnetNotices $name))
 }
-[IO.File]::Copy((Join-Path $project 'audio_bridge\LUA-LICENSE.txt'),(Join-Path $notices 'Lua-LICENSE.txt'))
 $prismDest = Join-Path $notices 'Prism'
 [IO.Directory]::CreateDirectory($prismDest) | Out-Null
 Copy-Item -LiteralPath (Join-Path $prismLicenses 'Prism-NOTICE.txt'),(Join-Path $prismLicenses 'LICENSES') -Destination $prismDest -Recurse
@@ -147,4 +166,4 @@ if ($ArchivePath) {
     Write-Output ('Package ZIP: ' + $ArchivePath)
     Write-Output ('Package SHA-256: ' + (Get-ReloadedHash $ArchivePath))
 }
-Write-Output ("Verified {0} payload files. Setup downloads the pinned reader and narration from Buu420's GitHub fork." -f $files.Count)
+Write-Output ("Verified {0} payload files. The native reader and movie narration are bundled." -f $files.Count)

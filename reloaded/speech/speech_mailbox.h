@@ -57,11 +57,15 @@ public:
 
     void set_foreground(bool foreground)
     {
-        std::lock_guard lock(mutex_);
+        std::unique_lock lock(mutex_);
         if (foreground_ && !foreground) {
             discard_pending();
+            stop_pending_ = true;
         }
         foreground_ = foreground;
+        const bool notify = stop_pending_;
+        lock.unlock();
+        if (notify) changed_.notify_one();
     }
 
     bool next(Message& message, std::chrono::milliseconds wait)
@@ -88,7 +92,8 @@ public:
     bool can_deliver(const Message& message) const
     {
         std::lock_guard lock(mutex_);
-        return foreground_ && !closed_ && message.generation == generation_;
+        return !closed_ && (message.kind == Message::Kind::stop ||
+                            (foreground_ && message.generation == generation_));
     }
 
     bool has_speech() const
@@ -102,6 +107,7 @@ public:
         std::unique_lock lock(mutex_);
         closed_ = true;
         discard_pending();
+        stop_pending_ = false;
         lock.unlock();
         changed_.notify_one();
     }
@@ -112,7 +118,6 @@ private:
     {
         ++generation_;
         pending_.clear();
-        stop_pending_ = false;
     }
 
     mutable std::mutex mutex_;

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.23)
-project(SparkingZeroAccessReloaded VERSION 0.1.1 LANGUAGES C CXX)
+project(SparkingInstinct VERSION 0.2.0 LANGUAGES C CXX)
 
 if(NOT MSVC OR NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     message(FATAL_ERROR "Build SparkingZeroAccess with MSVC for Windows x64.")
@@ -12,34 +12,23 @@ add_compile_options(/utf-8)
 
 include(CTest)
 include(FetchContent)
-FetchContent_Declare(sparking_lua_source
-    URL https://www.lua.org/ftp/lua-5.4.7.tar.gz
-    URL_HASH SHA256=9FBF5E28EF86C69858F6D3D34ECCC32E911C1A28B4120FF3E84AAA70CFBF1E30
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
-FetchContent_MakeAvailable(sparking_lua_source)
-file(GLOB lua_sources CONFIGURE_DEPENDS "${sparking_lua_source_SOURCE_DIR}/src/*.c")
-list(FILTER lua_sources EXCLUDE REGEX "/lua(c)?\\.c$")
-add_library(sparking_lua STATIC ${lua_sources})
-target_include_directories(sparking_lua PUBLIC "${sparking_lua_source_SOURCE_DIR}/src")
-target_compile_definitions(sparking_lua PRIVATE _CRT_SECURE_NO_WARNINGS)
-
 FetchContent_Declare(minhook
     URL https://codeload.github.com/TsudaKageyu/minhook/zip/refs/tags/v1.3.4
     URL_HASH SHA256=172708123DAA0C98D20D3A980B16A50BE14AF243DC95DEE6F79C24193AD010E4
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(minhook)
 
-set(SPARKING_PRISM_LUA_TARGET sparking_lua)
 add_subdirectory(speech)
+include(native/movie_cues.cmake)
 
-add_library(sparking_engine STATIC native/unreal.cpp native/lua_unreal.cpp)
+add_library(sparking_engine STATIC native/unreal.cpp native/game_reader.cpp)
 target_include_directories(sparking_engine PUBLIC native)
-target_link_libraries(sparking_engine PRIVATE sparking_lua)
 target_compile_options(sparking_engine PRIVATE /W4)
 
-add_library(sparking_runtime STATIC native/runtime.cpp lua/owned_files.cpp)
-target_include_directories(sparking_runtime PUBLIC native)
-target_link_libraries(sparking_runtime PRIVATE sparking_engine sparking_lua sparking_prism user32)
+add_library(sparking_runtime STATIC native/runtime.cpp native/reading_state.cpp
+    native/ui_reader.cpp native/battle_reader.cpp native/movie_reader.cpp native/movie_audio.cpp)
+target_include_directories(sparking_runtime PUBLIC native PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+target_link_libraries(sparking_runtime PRIVATE sparking_engine sparking_prism user32 xaudio2 ole32)
 target_compile_options(sparking_runtime PRIVATE /W4)
 
 add_library(sparking_executable STATIC native/executable.cpp)
@@ -74,12 +63,23 @@ if(BUILD_TESTING)
     target_compile_definitions(sparking_dsound_dynamic_test PRIVATE SPARKING_DSOUND_DYNAMIC_FIXTURE)
 
     add_executable(sparking_unreal_test native/tests/unreal_test.cpp)
-    target_link_libraries(sparking_unreal_test PRIVATE sparking_engine sparking_lua)
+    target_link_libraries(sparking_unreal_test PRIVATE sparking_engine)
     add_test(NAME sparking_unreal COMMAND sparking_unreal_test)
 
-    add_executable(sparking_owned_files_test lua/tests/owned_files_test.cpp lua/owned_files.cpp)
-    target_include_directories(sparking_owned_files_test PRIVATE lua)
-    target_link_libraries(sparking_owned_files_test PRIVATE sparking_lua)
-    add_test(NAME sparking_owned_files COMMAND sparking_owned_files_test)
-endif()
+    add_executable(sparking_reading_state_test native/tests/reading_state_test.cpp native/reading_state.cpp)
+    target_include_directories(sparking_reading_state_test PRIVATE native)
+    add_test(NAME sparking_reading_state COMMAND sparking_reading_state_test)
 
+    add_executable(sparking_ui_reader_test native/tests/ui_reader_test.cpp)
+    target_link_libraries(sparking_ui_reader_test PRIVATE sparking_runtime)
+    add_test(NAME sparking_ui_reader COMMAND sparking_ui_reader_test)
+
+    add_executable(sparking_battle_reader_test native/battle_reader.cpp native/tests/battle_reader_test.cpp)
+    target_include_directories(sparking_battle_reader_test PRIVATE native)
+    add_test(NAME sparking_battle_reader COMMAND sparking_battle_reader_test)
+
+
+    add_executable(sparking_movie_reader_test native/tests/movie_reader_test.cpp)
+    target_link_libraries(sparking_movie_reader_test PRIVATE sparking_runtime)
+    add_test(NAME sparking_movie_reader COMMAND sparking_movie_reader_test "${CMAKE_CURRENT_SOURCE_DIR}/narration")
+endif()

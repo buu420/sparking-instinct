@@ -1,268 +1,101 @@
 #include "runtime.h"
-#include "../lua/owned_files.h"
 #include "../speech/prism_speech.h"
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
 
-extern "C" {
-#include <lua.h>
-#include <lauxlib.h>
-#include <lualib.h>
-}
-
+#include <algorithm>
 #include <fstream>
 
 namespace sparking {
 namespace {
-constexpr auto no_reference = LUA_NOREF;
-constexpr std::size_t max_script = 1024 * 1024;
+using namespace std::chrono_literals;
+constexpr auto display_interval = 80ms;
+constexpr auto movie_interval = 33ms;
+constexpr auto stats_interval = 20s;
+constexpr auto battle_speech_gap = 650ms;
+constexpr std::size_t max_utterance = 12000;
 
-bool module_name(std::string_view name)
+bool saved_subtitles(const std::filesystem::path& path)
 {
-    if (name.empty() || name.size() > 96) return false;
-    for (const char ch : name) {
-        if ((ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') &&
-            (ch < '0' || ch > '9') && ch != '_') return false;
+    std::ifstream input(path, std::ios::binary | std::ios::ate);
+    if (!input || input.tellg() > 4096) return true;
+    input.seekg(0);
+    for (std::string line; std::getline(input, line);) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.starts_with("\xef\xbb\xbf")) line.erase(0, 3);
+        if (line == "AutomaticSubtitles=false") return false;
+        if (line == "AutomaticSubtitles=true") return true;
     }
     return true;
 }
 
-int audio_unavailable(lua_State* state)
+bool save_subtitles(const std::filesystem::path& path, bool enabled)
 {
-    return luaL_error(state, "The audio description bridge could not be loaded");
-}
-
-void preload(lua_State* state, const char* name, lua_CFunction function)
-{
-    luaL_getsubtable(state, LUA_REGISTRYINDEX, LUA_PRELOAD_TABLE);
-    lua_pushcfunction(state, function);
-    lua_setfield(state, -2, name);
-    lua_pop(state, 1);
-}
-
-void set_callback(lua_State* state, int argument, int& reference)
-{
-    luaL_checktype(state, argument, LUA_TFUNCTION);
-    luaL_unref(state, LUA_REGISTRYINDEX, reference);
-    lua_pushvalue(state, argument);
-    reference = luaL_ref(state, LUA_REGISTRYINDEX);
-}
-}
-
-Runtime::Runtime(Unreal& engine, std::filesystem::path scripts,
-                 std::filesystem::path game_bin, Report report)
-    : engine_(engine), native_{&engine, 0}, scripts_(std::move(scripts)),
-      game_bin_(std::move(game_bin)), report_(std::move(report))
-{
-    keys_.fill(no_reference);
-}
-
-Runtime::~Runtime()
-{
-    if (state_) lua_close(state_);
-}
-
-Runtime& Runtime::from(lua_State* state)
-{
-    return **static_cast<Runtime**>(lua_getextraspace(state));
-}
-
-int Runtime::log(lua_State* state)
-{
-    std::string message;
-    for (int i = 1, count = lua_gettop(state); i <= count; ++i) {
-        std::size_t length{};
-        const auto* value = luaL_tolstring(state, i, &length);
-        if (i > 1) message += ' ';
-        message.append(value, (std::min)(length, std::size_t{4096}));
-        lua_pop(state, 1);
-        if (message.size() >= 4096) break;
+    auto temporary = path;
+    temporary += L"." + std::to_wstring(GetCurrentProcessId()) + L".tmp";
+    {
+        std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+        if (!output) return false;
+        output << (enabled ? "AutomaticSubtitles=true\n" : "AutomaticSubtitles=false\n");
+        output.close();
+        if (!output) {
+            DeleteFileW(temporary.c_str());
+            return false;
+        }
     }
-    from(state).report_(message);
-    return 0;
-}
-
-int Runtime::wall_clock(lua_State* state)
-{
-    const auto elapsed = Clock::now() - from(state).origin_;
-    lua_pushnumber(state, std::chrono::duration<double>(elapsed).count());
-    return 1;
-}
-
-bool Runtime::read_script(const std::filesystem::path& file, const char* chunk_name)
-{
-    std::ifstream input(file, std::ios::binary | std::ios::ate);
-    const auto end = input.tellg();
-    if (!input || end <= 0 || static_cast<std::uintmax_t>(end) > max_script) {
-        lua_pushfstring(state_, "Reader module unavailable: %s", chunk_name);
-        return false;
-    }
-    std::string content(static_cast<std::size_t>(end), '\0');
-    input.seekg(0);
-    if (!input.read(content.data(), static_cast<std::streamsize>(content.size()))) {
-        lua_pushfstring(state_, "Reader module could not be read: %s", chunk_name);
-        return false;
-    }
-    return luaL_loadbufferx(state_, content.data(), content.size(), chunk_name, "t") == LUA_OK;
-}
-
-int Runtime::find_module(lua_State* state)
-{
-    std::size_t size{};
-    const auto* module = luaL_checklstring(state, 1, &size);
-    if (!module_name({module, size})) {
-        lua_pushliteral(state, "Invalid reader module name");
-        return 1;
-    }
-    auto& self = from(state);
-    const std::string file = std::string(module, size) + ".lua";
-    self.read_script(self.scripts_ / file, file.c_str());
-    return 1;
-}
-
-int Runtime::add_timer(lua_State* state)
-{
-    auto& self = from(state);
-    const auto milliseconds = luaL_checkinteger(state, 1);
-    if (milliseconds < 1 || milliseconds > 60000 || self.timer_ != no_reference)
-        return luaL_error(state, "Invalid reader timer registration");
-    set_callback(state, 2, self.timer_);
-    self.interval_ = std::chrono::milliseconds(milliseconds);
-    return 0;
-}
-
-int Runtime::add_key(lua_State* state)
-{
-    auto& self = from(state);
-    const auto key = luaL_checkinteger(state, 1);
-    if (key < VK_F3 || key > VK_F9) return luaL_error(state, "Invalid reader hotkey");
-    set_callback(state, 2, self.keys_[static_cast<std::size_t>(key - VK_F3)]);
-    return 0;
-}
-
-int Runtime::has_key(lua_State* state)
-{
-    const auto key = luaL_checkinteger(state, 1);
-    lua_pushboolean(state, key >= VK_F3 && key <= VK_F9 &&
-        from(state).keys_[static_cast<std::size_t>(key - VK_F3)] != no_reference);
-    return 1;
-}
-
-int Runtime::add_map_pre(lua_State* state)
-{
-    set_callback(state, 1, from(state).map_pre_);
-    return 0;
-}
-
-int Runtime::add_map_post(lua_State* state)
-{
-    set_callback(state, 1, from(state).map_post_);
-    return 0;
-}
-
-bool Runtime::run(int arguments, int results, std::string_view label)
-{
-    if (lua_pcall(state_, arguments, results, 0) == LUA_OK) return true;
-    const auto* error = lua_tostring(state_, -1);
-    report_(std::string(label) + ": " + (error ? error : "Lua error"));
-    lua_pop(state_, 1);
+    if (MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING)) return true;
+    DeleteFileW(temporary.c_str());
     return false;
 }
 
-bool Runtime::start()
+std::string together(const std::vector<std::string>& items)
 {
-    state_ = luaL_newstate();
-    if (!state_) return false;
-    *static_cast<Runtime**>(lua_getextraspace(state_)) = this;
-    luaL_openlibs(state_);
-    install_unreal(state_, native_);
-    if (!InstallOwnedFiles(state_, game_bin_))
-        report_("The AE_debug directory is unavailable.");
-
-    const luaL_Reg globals[] = {
-        {"print", log}, {"LoopInGameThreadWithDelay", add_timer}, {"RegisterKeyBind", add_key},
-        {"IsKeyBindRegistered", has_key}, {"RegisterLoadMapPreHook", add_map_pre},
-        {"RegisterLoadMapPostHook", add_map_post}, {nullptr, nullptr}
-    };
-    lua_pushglobaltable(state_);
-    luaL_setfuncs(state_, globals, 0);
-    lua_pop(state_, 1);
-    lua_pushboolean(state_, true);
-    lua_setglobal(state_, "EngineTickAvailable");
-    lua_getglobal(state_, "os");
-    lua_pushcfunction(state_, wall_clock);
-    lua_setfield(state_, -2, "clock");
-    lua_pop(state_, 1);
-    lua_newtable(state_);
-    for (int key = VK_F3; key <= VK_F9; ++key) {
-        const auto name = "F" + std::to_string(key - VK_F1 + 1);
-        lua_pushinteger(state_, key);
-        lua_setfield(state_, -2, name.c_str());
-    }
-    lua_setglobal(state_, "Key");
-
-    lua_getglobal(state_, "package");
-    lua_getfield(state_, -1, "searchers");
-    lua_newtable(state_);
-    lua_rawgeti(state_, -2, 1);
-    lua_rawseti(state_, -2, 1);
-    lua_pushcfunction(state_, find_module);
-    lua_rawseti(state_, -2, 2);
-    lua_setfield(state_, -3, "searchers");
-    lua_pop(state_, 2);
-
-    preload(state_, "speech_bridge", luaopen_sparking_prism);
-    const auto audio = LoadLibraryExW((scripts_ / L"audio_bridge.dll").c_str(), nullptr,
-                                      LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
-    const auto audio_open = audio ? GetProcAddress(audio, "luaopen_audio_bridge") : nullptr;
-    preload(state_, "audio_bridge", audio_open ? reinterpret_cast<lua_CFunction>(audio_open)
-                                              : audio_unavailable);
-
-    if (!read_script(scripts_ / L"main.lua", "main.lua")) {
-        const auto* error = lua_tostring(state_, -1);
-        report_(error ? error : "Unable to open main.lua");
-        return false;
-    }
-    if (!run(0, 0, "Reader startup")) return false;
-
-    lua_getglobal(state_, "require");
-    lua_pushliteral(state_, "screen_reader");
-    if (run(1, 1, "Screen reader reset lookup")) {
-        if (lua_istable(state_, -1)) {
-            lua_getfield(state_, -1, "Reset");
-            if (lua_isfunction(state_, -1)) screen_reset_ = luaL_ref(state_, LUA_REGISTRYINDEX);
-            else lua_pop(state_, 1);
+    std::string result;
+    for (const auto& item : items) {
+        if (item.empty()) continue;
+        if (!result.empty() && result.size() + item.size() + 2 > max_utterance) break;
+        if (!result.empty()) result += ". ";
+        if (item.size() <= max_utterance) result += item;
+        else {
+            std::size_t end = max_utterance;
+            while (end && (static_cast<unsigned char>(item[end]) & 0xc0) == 0x80) --end;
+            result.append(item, 0, end);
+            break;
         }
-        lua_pop(state_, 1);
     }
-    return timer_ != no_reference && map_pre_ != no_reference && map_post_ != no_reference;
+    return result;
+}
 }
 
-bool Runtime::callback(int reference, std::string_view label, bool stop_on_true)
+Runtime::Runtime(Unreal& engine, const std::filesystem::path& mod,
+                 const std::filesystem::path& game_bin, Report report)
+    : engine_(engine), game_(engine), ui_(game_), battle_(game_), movie_(game_, mod / L"AudioDescription", report),
+      preference_(game_bin / L"SparkingZeroAccess-subtitles.ini"), report_(std::move(report)),
+      subtitles_(saved_subtitles(preference_))
 {
-    if (reference == no_reference) return false;
-    lua_rawgeti(state_, LUA_REGISTRYINDEX, reference);
-    if (!run(0, stop_on_true ? 1 : 0, label)) return false;
-    if (!stop_on_true) return false;
-    const bool done = lua_isboolean(state_, -1) && lua_toboolean(state_, -1);
-    lua_pop(state_, 1);
-    return done;
 }
 
-void Runtime::sample_keys(bool dispatch)
+bool Runtime::speak(std::string_view message, bool interrupt)
 {
-    for (std::size_t i = 0; i < keys_.size(); ++i) {
-        const auto held = (GetAsyncKeyState(VK_F3 + static_cast<int>(i)) & 0x8000) != 0;
-        if (dispatch && held && !down_[i]) callback(keys_[i], "Reader hotkey");
-        down_[i] = held;
-    }
+    if (message.empty() || !speech::say(message, interrupt)) return false;
+    if (debug_) report_(std::string("Speech: ") + std::string(message));
+    return true;
 }
 
-void Runtime::reset_screen()
+void Runtime::reset()
 {
-    callback(screen_reset_, "Screen reader reset");
+    reading_.reset();
+    ui_.reset();
+    battle_.reset();
+    movie_.reset();
+    screen_ = {};
+    hud_ = {};
+    items_.clear();
+    review_index_ = 0;
+    movie_visible_ = false;
+    next_ = next_movie_ = next_battle_speech_ = {};
 }
 
 void Runtime::foreground_lost()
@@ -270,12 +103,35 @@ void Runtime::foreground_lost()
     if (!foreground_) return;
     foreground_ = false;
     speech::set_foreground(false);
-    reset_screen();
+    reset();
+}
+
+void Runtime::map_start()
+{
+    if (map_depth_++ != 0) return;
+    speech::stop();
+    reset();
+}
+
+void Runtime::map_end()
+{
+    if (!map_depth_ || --map_depth_) return;
+    game_.reset();
+    engine_.clear_layouts();
+}
+
+void Runtime::sample_keys(bool dispatch)
+{
+    for (std::size_t i = 0; i < down_.size(); ++i) {
+        const auto key = VK_F3 + static_cast<int>(i);
+        const auto held = (GetAsyncKeyState(key) & 0x8000) != 0;
+        if (dispatch && held && !down_[i]) hotkey(key);
+        down_[i] = held;
+    }
 }
 
 void Runtime::frame(bool foreground)
 {
-    ++native_.frame;
     if (!foreground) {
         foreground_lost();
         return;
@@ -285,31 +141,141 @@ void Runtime::frame(bool foreground)
         speech::set_foreground(true);
         sample_keys(false);
     }
-    if (map_depth_ || !engine_.readable()) return;
+    if (map_depth_ || !engine_.readable()) {
+        if (movie_visible_) movie_.reset();
+        movie_visible_ = false;
+        next_ = next_movie_ = {};
+        sample_keys(false);
+        return;
+    }
 
-    sample_keys(true);
     const auto now = Clock::now();
-    if (timer_ == no_reference || now < due_) return;
-    due_ = now + interval_;
-    if (callback(timer_, "Reader polling", true)) {
-        luaL_unref(state_, LUA_REGISTRYINDEX, timer_);
-        timer_ = no_reference;
+    if (now >= next_ || (movie_visible_ && now >= next_movie_)) sample(now);
+    sample_keys(!engine_.faulted());
+}
+
+void Runtime::sample(Clock::time_point now)
+{
+    const bool read_screen = now >= next_;
+    if (read_screen) next_ = now + display_interval;
+    const auto roots = game_.viewport_roots();
+    if (now >= next_movie_) {
+        const bool was_visible = movie_visible_;
+        movie_visible_ = movie_.sample(roots);
+        next_movie_ = now + movie_interval;
+        if (movie_visible_ != was_visible) {
+            reading_.reset();
+            ui_.reset();
+            battle_.reset();
+            items_.clear();
+            screen_ = {};
+            hud_ = {};
+            review_index_ = 0;
+            speech::stop();
+        }
+    }
+    if (!read_screen || engine_.faulted()) return;
+
+    screen_ = ui_.sample(roots, movie_visible_);
+    hud_ = movie_visible_ ? BattleReading{} : battle_.sample(roots);
+    if (engine_.faulted()) return;
+    auto next_items = screen_.items;
+    for (const auto& item : hud_.items) {
+        if (!item.empty() && std::ranges::find(next_items, item) == next_items.end())
+            next_items.push_back(item);
+    }
+    if (next_items != items_) {
+        const auto previous = items_.empty() ? std::string_view{} : std::string_view(items_[review_index_]);
+        const auto found = std::ranges::find(next_items, previous);
+        review_index_ = found == next_items.end() ? 0 : static_cast<std::size_t>(found - next_items.begin());
+        items_ = std::move(next_items);
+    }
+
+    const bool changed = reading_.screen_changed(screen_.root, screen_.focus, screen_.announcement);
+    const bool tutorial = reading_.tutorial_due(screen_.tutorial, now);
+    const bool subtitle = reading_.subtitle_changed(screen_.subtitle);
+    bool speaking = false;
+    if (changed && screen_.announcement != screen_.tutorial && screen_.announcement != screen_.subtitle)
+        speaking = speak(screen_.announcement);
+    if (tutorial) speaking = speak(screen_.tutorial, !speaking) || speaking;
+    if (subtitle && subtitles_ && screen_.subtitle != screen_.tutorial)
+        speaking = speak(screen_.subtitle, !speaking) || speaking;
+    if (!hud_.guide.empty()) {
+        speaking = speak(hud_.guide, !speaking) || speaking;
+        next_battle_speech_ = now + battle_speech_gap;
+    }
+    if (!speaking && !hud_.guide_visible && !hud_.announcements.empty() &&
+        now >= next_battle_speech_ && !speech::speaking()) {
+        if (speak(together(hud_.announcements), false))
+            next_battle_speech_ = now + battle_speech_gap;
+    }
+
+    const auto elapsed = std::chrono::duration<double, std::milli>(Clock::now() - now).count();
+    ++polls_;
+    total_ms_ += elapsed;
+    peak_ms_ = (std::max)(peak_ms_, elapsed);
+    if (stats_since_ == Clock::time_point{}) stats_since_ = now;
+    if (now - stats_since_ >= stats_interval) {
+        report_("Reader timing: " + std::to_string(total_ms_ / polls_) + " ms average, " +
+                std::to_string(peak_ms_) + " ms maximum, " + std::to_string(polls_) + " samples.");
+        stats_since_ = now;
+        total_ms_ = peak_ms_ = 0;
+        polls_ = 0;
     }
 }
 
-void Runtime::map_start()
+void Runtime::review(int direction)
 {
-    ++native_.frame;
-    if (map_depth_++ == 0) callback(map_pre_, "Before map load");
+    if (items_.empty()) {
+        speak(movie_visible_ ? "A movie is on screen." : "No readable text on this screen.");
+        return;
+    }
+    if (!direction) {
+        review_index_ = 0;
+        speak(together(items_));
+        return;
+    }
+    if (direction < 0)
+        review_index_ = review_index_ ? review_index_ - 1 : items_.size() - 1;
+    else
+        review_index_ = (review_index_ + 1) % items_.size();
+    speak(items_[review_index_]);
 }
 
-void Runtime::map_end()
+void Runtime::dump(bool battle) const
 {
-    if (!map_depth_ || --map_depth_) return;
-    ++native_.frame;
-    engine_.clear_layouts();
-    callback(map_post_, "After map load");
+    report_(battle ? "Battle HUD review:" : "Screen review:");
+    for (const auto& item : (battle ? hud_.items : items_)) report_(item);
+}
+
+void Runtime::toggle_subtitles()
+{
+    subtitles_ = !subtitles_;
+    const bool saved = save_subtitles(preference_, subtitles_);
+    std::string message = subtitles_ ? "Automatic subtitle speech on." : "Automatic subtitle speech off.";
+    if (!saved) {
+        report_("Could not save the automatic subtitle speech preference.");
+        message += " The setting could not be saved.";
+    }
+    speak(message);
+}
+
+void Runtime::hotkey(int key)
+{
+    switch (key) {
+    case VK_F3: dump(true); break;
+    case VK_F4: dump(false); break;
+    case VK_F5:
+        debug_ = !debug_;
+        report_(debug_ ? "Reader diagnostics on." : "Reader diagnostics off.");
+        speak(debug_ ? "Reader diagnostics on." : "Reader diagnostics off.");
+        break;
+    case VK_F6: review(0); break;
+    case VK_F7: review(-1); break;
+    case VK_F8: review(1); break;
+    case VK_F9: toggle_subtitles(); break;
+    default: break;
+    }
 }
 
 }
-

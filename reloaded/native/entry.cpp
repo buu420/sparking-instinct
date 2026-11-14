@@ -48,7 +48,7 @@ struct LogQueue {
 
 struct Session {
     Session(Address base, std::filesystem::path module, std::filesystem::path game)
-        : engine(sparking::engine_api(base)), scripts(module.parent_path() / L"Scripts"),
+        : engine(sparking::engine_api(base)), mod_root(module.parent_path()),
           game_bin(game.parent_path())
     {
         const auto mod = module.parent_path();
@@ -58,7 +58,7 @@ struct Session {
     }
 
     sparking::Unreal engine;
-    std::filesystem::path scripts;
+    std::filesystem::path mod_root;
     std::filesystem::path game_bin;
     std::filesystem::path log_dir;
     LogQueue logs;
@@ -108,15 +108,10 @@ void game_frame(Session& current, Address engine)
     if (!current.runtime) {
         if (!foreground || !current.engine.readable() || !current.engine.game_instance()) return;
         sparking::speech::set_foreground(true);
-        auto runtime = std::make_unique<sparking::Runtime>(current.engine, current.scripts,
+        auto runtime = std::make_unique<sparking::Runtime>(current.engine, current.mod_root,
             current.game_bin, [&current](std::string_view line) { current.logs.write(line); });
-        if (!runtime->start()) {
-            current.logs.write("[SparkingZeroAccess.Reloaded] Reader initialization failed.");
-            current.disabled = true;
-            return;
-        }
         current.runtime = runtime.release();
-        current.logs.write("[SparkingZeroAccess.Reloaded] Native Lua host ready");
+        current.logs.write("[SparkingZeroAccess.Reloaded] Native accessibility reader ready");
     }
     if (current.engine.faulted()) {
         current.runtime->foreground_lost();
@@ -213,7 +208,7 @@ DWORD WINAPI initialize(void* module)
             log << "Existing UE4SS detected. Use the Reloaded-only game launch.\n";
             return 0;
         }
-        if (!sparking::speech::start(current->scripts / L"prism.dll",
+        if (!sparking::speech::start(current->mod_root / L"prism.dll",
                                      current->log_dir / L"prism.log")) {
             log << "The Prism speech worker could not start.\n";
             return 0;
@@ -225,8 +220,8 @@ DWORD WINAPI initialize(void* module)
             sparking::speech::shutdown();
             return 0;
         }
-        // Reloaded retains this module until process exit. Keep engine and Lua
-        // state alive with the hooks and avoid Lua/COM cleanup under the loader lock.
+        // Reloaded retains this module until process exit. Keep engine and reader
+        // state alive with the hooks and avoid audio or COM cleanup under the loader lock.
         auto* active = current.release();
         log << "[SparkingZeroAccess.Reloaded] Steam build 24953175 verified. Game-thread hooks active.\n"
             << std::flush;

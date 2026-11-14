@@ -1,12 +1,12 @@
-Sparking Instinct is a screen reader mod for **DRAGON BALL: Sparking! ZERO**. Jessica Tegner and the Sparking Zero Access contributors created the original Lua reader. Buu420 ported the mod to Reloaded II and Prism and made the opening and post-tutorial audio descriptions. [Original project](https://github.com/AccessForge/SparkingZeroAccess)
+Sparking Instinct is a screen reader mod for **DRAGON BALL: Sparking! ZERO**. This beta includes the native Reloaded II reader, Prism, and Buu420's audio descriptions for the opening and post-tutorial movie.
 
-This release supports **Windows x64 and Steam build 24953175, game version 3022.021.003.012.015**. It uses the x64 .NET 9 Desktop Runtime. You can install and play without the AccessForge app. During installation, setup automatically downloads and verifies the original reader and audio descriptions from Buu420's GitHub fork. Reloaded II loads the prepared files locally when you start the game.
+The beta supports **Windows x64, Steam build 24953175 (game version 3022.021.003.012.015)**, and uses the x64 .NET 9 Desktop Runtime. Amethyst can install that prerequisite separately if needed.
 
-- **Amethyst:** Choose **Sparking Instinct (Beta)** from Buu420. Close the game before installing, updating, or uninstalling. Use the standalone ZIP below for manual installation. [Buu420 Amethyst catalog](https://github.com/buu420/buu-s-mods)
-- **Standalone:** Close the game, extract the Windows ZIP, and run `Install.cmd`. Run `Uninstall.cmd` from the extracted ZIP to remove it. Remove any prior standalone Reloaded preview with its own uninstaller before installing.
+- **Amethyst**. Select **Sparking Instinct (Beta)** from Buu420. Close the game before installing, updating, or uninstalling. [Buu420 catalog](https://github.com/buu420/buu-s-mods)
+- **Windows ZIP**. Close the game and extract the ZIP. Run `Install.cmd` to install or `Uninstall.cmd` to remove the mod. If you have a standalone preview, use its uninstaller first.
 
-Start your screen reader, then launch Sparking! ZERO from Steam or the Steam desktop shortcut.
+Start your screen reader and launch Sparking! ZERO from Steam or its desktop shortcut.
 
-**Controls.** F6 reads the screen. F7 and F8 review items. F9 toggles automatic subtitle speech, including some unvoiced text shown in subtitle windows. Visible tutorial instructions repeat every 20 seconds.
+F6 reads the screen. F7 and F8 review items. F9 toggles automatic subtitle speech. Visible tutorial instructions repeat every 20 seconds. For a bug report, include the screen and input. You can find the startup and reader logs in `SparkingZeroAccess-Reloaded\Logs` inside the game folder.
 
-**Beta coverage.** The port was exercised with NVDA through the regular Steam launch, menus, offline training, and the controls screen. Story coverage, player-two gauge ownership, and movie description timing need more live testing. If you report an issue, include the screen, your input, and the logs from `SparkingZeroAccess-Reloaded\Logs` inside the game folder.
+Jessica Tegner and the Sparking Zero Access contributors built the earlier reader that inspired this work. [Earlier project](https://github.com/AccessForge/SparkingZeroAccess)

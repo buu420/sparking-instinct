@@ -2,15 +2,11 @@ if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     message(FATAL_ERROR "SparkingZeroAccess Prism speech requires Windows x64")
 endif()
 
-if(NOT SPARKING_PRISM_LUA_TARGET OR NOT TARGET "${SPARKING_PRISM_LUA_TARGET}")
-    message(FATAL_ERROR "Set SPARKING_PRISM_LUA_TARGET to the host's Lua target before adding speech")
-endif()
-
 add_library(sparking_prism STATIC prism_api.cpp prism_speech.cpp)
 target_compile_features(sparking_prism PUBLIC cxx_std_20)
 target_include_directories(sparking_prism PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_include_directories(sparking_prism SYSTEM PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_link_libraries(sparking_prism PRIVATE "${SPARKING_PRISM_LUA_TARGET}" ole32 user32)
+target_link_libraries(sparking_prism PRIVATE ole32 user32)
 
 if(BUILD_TESTING)
     add_executable(sparking_speech_mailbox_test tests/mailbox_test.cpp)
@@ -20,10 +16,6 @@ if(BUILD_TESTING)
         target_compile_options(sparking_speech_mailbox_test PRIVATE /utf-8)
     endif()
     add_test(NAME sparking_speech_mailbox COMMAND sparking_speech_mailbox_test)
-
-    add_executable(sparking_lua_bridge_test tests/lua_bridge_test.cpp)
-    target_link_libraries(sparking_lua_bridge_test PRIVATE sparking_prism "${SPARKING_PRISM_LUA_TARGET}")
-    add_test(NAME sparking_lua_speech_bridge COMMAND sparking_lua_bridge_test)
 
     if(SPARKING_PRISM_TEST_DLL)
         add_executable(sparking_prism_abi_test tests/prism_abi_test.cpp)

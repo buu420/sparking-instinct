@@ -55,6 +55,17 @@ int main()
     require(!mailbox.can_deliver(message), "in-flight background speech survived focus round trip");
     require(!mailbox.has_speech(), "queued background speech survived focus round trip");
 
+    require(mailbox.next(message, 0ms) && message.kind == Message::Kind::stop &&
+                mailbox.can_deliver(message),
+            "foreground loss did not stop the game's active speech");
+    require(mailbox.say("before stop and new screen", false), "rejected speech before a screen transition");
+    mailbox.stop();
+    require(mailbox.say("new screen", true), "rejected speech after a stop");
+    require(mailbox.next(message, 0ms) && message.kind == Message::Kind::stop,
+            "new speech removed the pending stop");
+    require(mailbox.next(message, 0ms) && message.text == "new screen",
+            "pending stop lost the new screen");
+
     for (std::size_t i = 0; i < SpeechMailbox::maximum_messages; ++i) {
         require(mailbox.say("pending", false), "capacity was too small");
     }

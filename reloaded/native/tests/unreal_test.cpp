@@ -1,11 +1,5 @@
 #include "unreal.h"
-#include "lua_unreal.h"
-
-extern "C" {
-#include <lua.h>
-#include <lauxlib.h>
-#include <lualib.h>
-}
+#include "game_reader.h"
 
 #include <array>
 #include <cstdlib>
@@ -83,6 +77,8 @@ Address find_object(Address type, Address outer, const wchar_t* name, bool)
         return address(records[14]);
     if (std::wstring_view(name) == L"TextBlock") return address(records[5]);
     if (std::wstring_view(name) == L"UserWidget") return address(records[8]);
+    if (std::wstring_view(name) == L"GameEngine") return address(records[16]);
+    if (std::wstring_view(name) == L"GameInstance") return address(records[17]);
     return 0;
 }
 
@@ -127,6 +123,9 @@ void process(Address target, Address function, void* parameters)
         auto* data = new Address[2]{address(records[15]), address(records[14])};
         *reinterpret_cast<ArrayHeader*>(base + 8) = {reinterpret_cast<Address>(data),
                                                      query_invalid ? -1 : 2, 2};
+    } else if (function == address(records[7])) {
+        check(target == address(records[15]), "viewport getter received wrong widget");
+        *static_cast<std::uint8_t*>(parameters) = 1;
     } else check(false, "unexpected reflected method");
 }
 
@@ -171,13 +170,6 @@ void function(int index, int owner, NameId name, Address first, int count, int s
     set(records[owner], 0x48, address(records[index]));
 }
 
-void lua_run(lua_State* state, const char* program)
-{
-    if (luaL_dostring(state, program) != LUA_OK) {
-        std::cerr << lua_tostring(state, -1) << '\n';
-        std::exit(1);
-    }
-}
 }
 
 int main()
@@ -309,39 +301,49 @@ int main()
     set(records[8], 0x50, address(display_array));
     set(records[8], 0x58, std::int32_t{0x100});
 
+    record(16, 1, name_at(370, "GameEngine"));
+    record(17, 1, name_at(385, "GameInstance"));
+    set(records[16], 0x40, address(records[2]));
+    set(records[17], 0x40, address(records[2]));
+    set(records[4], 0x40, address(records[17]));
+    set(game_engine, 0, ObjectHeader{1, 0, 0, address(records[16]), fixture_name, 0});
+    slots[0].object = address(game_engine);
+    PropertyBytes visibility{}, opacity{}, attached_result{};
+    property(visibility, address(field_class), name_at(401, "Visibility"), 0xa0, 4, 0);
+    set(visibility, 0x20, address(display_array));
+    std::array<std::byte, 0x40> float_kind{};
+    set(float_kind, 0, name_at(416, "FloatProperty"));
+    property(opacity, address(float_kind), name_at(433, "RenderOpacity"), 0xa4, 4, 0);
+    set(opacity, 0x20, address(visibility));
+    set(records[8], 0x50, address(opacity));
+    set(records[15], 0xa4, 1.0f);
+    record(3, 1, name_at(449, "Widget"));
+    set(records[3], 0x40, address(records[2]));
+    set(records[8], 0x40, address(records[3]));
+    property(attached_result, address(kinds[4]), result_name, 0, 1, 0x580);
+    set(attached_result, 0x7a, std::uint8_t{1});
+    set(attached_result, 0x7b, std::uint8_t{0xff});
+    function(7, 3, name_at(460, "IsInViewport"), address(attached_result), 1, 1, 0);
+    engine.clear_layouts();
+
     const auto game_ref = engine.capture(address(records[6]));
-    check(engine.world_context(game_ref), "world-context identity missing");
-    auto* state = luaL_newstate();
-    luaL_openlibs(state);
-    LuaUnreal adapter{&engine, 1};
-    install_unreal(state, adapter);
-    lua_run(state, R"(
-        local game = StaticFindObject('/Engine/Transient.Fixture_6')
-        local found = {}
-        local widgets = StaticFindObject('/Script/UMG.Default__WidgetBlueprintLibrary')
-        local widget_type = assert(FindObjects(1, 'Class', 'UserWidget', 0, 0, false)[1])
-        assert(not pcall(function() widgets:GetAllWidgetsOfClass(widgets, found, widget_type, true) end))
-        widgets:GetAllWidgetsOfClass(game, found, widget_type, true)
-        assert(#found == 1 and found[1]:type() == 'UObject' and found[1]:IsValid())
-        assert(found[1]:GetFullName() == 'UserWidget WidgetFixture')
-        children = found[1].Children
-        assert(children:GetArrayNum() == 1 and children[1] == found[1] and children[2] == nil)
-        assert(widgets.SetText == nil)
-        query = function() widgets:GetAllWidgetsOfClass(game, {}, widget_type, true) end
-    )");
-    check(calls == 1 && freed == 2, "validated UMG call did not free exactly once");
+    check(engine.world_context(game_ref) && engine.game_instance() == game_ref, "world-context identity missing");
+    GameReader reader(engine);
+    const auto roots = reader.viewport_roots();
+    check(roots.size() == 1 && roots.front().address == address(records[15]), "detached or unrelated widget leaked");
+    check(freed == 2, "validated UMG call did not free exactly once");
+    const auto ui_children = reader.objects(roots.front(), "Children", 3);
+    check(ui_children.size() == 1 && ui_children.front() == roots.front(), "native object array mismatch");
+    set(records[15], 0xa0, std::int32_t{2});
+    check(reader.viewport_roots().empty() && freed == 3, "hidden widget exposed");
+    set(records[15], 0xa0, std::int32_t{0});
     query_invalid = true;
-    lua_run(state, "assert(not pcall(query))");
-    check(freed == 3, "failed query did not free its engine array");
-    lua_run(state, R"(
-        local widget = StaticFindObject('/Game/TextFixture.TextFixture')
-        spoken = widget:GetText()
-        assert(spoken:ToString() == '\u{00a1}Listo! \u{30d9}\u{30b8}\u{30fc}\u{30bf}')
-    )");
-    check(calls == 3 && destroyed == 1, "rendered FText result was not released exactly once");
-    ++adapter.frame;
-    lua_run(state, "assert(not children:IsValid() and children[1] == nil and #spoken:ToString() > 10)");
-    lua_close(state);
+    check(reader.viewport_roots().empty() && freed == 4, "failed query did not free its engine array");
+    const auto shown = engine.capture(address(records[14]));
+    const auto spoken = reader.call_text(shown, "GetText");
+    check(spoken == utf8(current_text) && destroyed == 1, "rendered FText was not copied and released");
+    const auto before = calls;
+    check(reader.call_text(shown, "SetText").empty() && calls == before, "unsupported call was dispatched");
     std::cout << "UE5.1 name, object lifetime, class, path, property and GC checks passed\n";
 }
 

@@ -39,7 +39,7 @@ Copy-ReloadedPackageFile (Get-SafeReloadedPath $source $package.autoStart.path) 
 $startupReceipt = [ordered]@{ installOwner='Amethyst'; modId=$SparkingReloadedModId; version=$SparkingPackageVersion }
 Set-ReloadedJson (Get-SafeReloadedPath $manager $SparkingReceiptPath) $startupReceipt
 $ammReadme = @'
-Sparking Instinct 0.1.3 beta for DRAGON BALL: Sparking! ZERO.
+Sparking Instinct 0.2.0 beta for DRAGON BALL: Sparking! ZERO.
 
 This copy is installed and removed by Amethyst. To play, launch the game as
 usual from Steam or the Steam desktop shortcut. Use Amethyst to uninstall.
@@ -47,11 +47,10 @@ usual from Steam or the Steam desktop shortcut. Use Amethyst to uninstall.
 F6 reads the screen. F7 and F8 review the previous and next item. F9 toggles
 automatic subtitle speech. See the release page for controls and coverage.
 
-Original Sparking Zero Access reader by Jessica Tegner and contributors.
-Buu420 made the audio descriptions and maintains the Reloaded II and Prism port.
+Buu420 made the audio descriptions and maintains this native Reloaded II mod.
 '@
 [IO.File]::WriteAllText((Get-SafeReloadedPath $manager 'README.txt'),$ammReadme,$SparkingUtf8)
-foreach ($name in @('Reloaded-InstallCommon.ps1','Reloaded-Payload.ps1','Reloaded-Legacy.ps1','Prepare-Reader.ps1','ReaderPlan.json')) {
+foreach ($name in @('Reloaded-InstallCommon.ps1','Reloaded-Payload.ps1','Reloaded-Legacy.ps1')) {
     [IO.File]::Copy((Get-SafeReloadedPath $PackageDirectory $name),(Get-SafeReloadedPath $setup $name))
 }
 [IO.File]::Copy((Join-Path $PSScriptRoot 'Prepare-AmethystInstall.ps1'),(Get-SafeReloadedPath $StageDirectory $knownScript))
@@ -59,10 +58,11 @@ foreach ($name in @('Reloaded-InstallCommon.ps1','Reloaded-Payload.ps1','Reloade
 $verification = @(
     [ordered]@{ type='hashEquals'; path='SparkingZERO/Binaries/Win64/dsound.dll'; sha256=$package.autoStart.sha256 }
 )
-foreach ($item in (Get-ReloadedJson (Join-Path $setup 'ReaderPlan.json')).files) {
+$modPrefix = $SparkingModFolder.Replace('\','/') + '/'
+foreach ($item in @($package.files | Where-Object { $_.path.StartsWith($modPrefix, [StringComparison]::Ordinal) })) {
     $verification += [ordered]@{
-        type='hashEquals'; path="$SparkingReloadedFolder/$($SparkingModFolder.Replace('\','/'))/Scripts/$($item.path)"
-        sha256=$item.patched
+        type='hashEquals'; path="$SparkingReloadedFolder/$($item.path)"
+        sha256=$item.sha256
     }
 }
 $manifest = [ordered]@{
