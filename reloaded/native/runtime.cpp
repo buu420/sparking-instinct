@@ -177,8 +177,9 @@ void Runtime::sample(Clock::time_point now)
     if (!read_screen || engine_.faulted()) return;
 
     screen_ = ui_.sample(roots, movie_visible_);
-    hud_ = movie_visible_ ? BattleReading{} : battle_.sample(roots);
+    hud_ = movie_visible_ ? BattleReading{} : battle_.sample(roots, now);
     if (engine_.faulted()) return;
+    reading_.update_hud(hud_.items, hud_.announcements, now);
     auto next_items = screen_.items;
     for (const auto& item : hud_.items) {
         if (!item.empty() && std::ranges::find(next_items, item) == next_items.end())
@@ -204,10 +205,12 @@ void Runtime::sample(Clock::time_point now)
         speaking = speak(hud_.guide, !speaking) || speaking;
         next_battle_speech_ = now + battle_speech_gap;
     }
-    if (!speaking && !hud_.guide_visible && !hud_.announcements.empty() &&
-        now >= next_battle_speech_ && !speech::speaking()) {
-        if (speak(together(hud_.announcements), false))
+    if (!speaking && now >= next_battle_speech_) {
+        const auto pending = reading_.pending_hud();
+        if (!pending.empty() && !speech::speaking() && speak(pending, false)) {
+            reading_.clear_hud();
             next_battle_speech_ = now + battle_speech_gap;
+        }
     }
 
     const auto elapsed = std::chrono::duration<double, std::milli>(Clock::now() - now).count();

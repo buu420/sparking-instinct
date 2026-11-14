@@ -11,6 +11,7 @@ namespace sparking {
 namespace {
 
 constexpr std::int32_t charge_key = 11; // EKoratBattleKey::Charge
+constexpr auto guide_off_interval = std::chrono::milliseconds{750};
 
 // These widget inputs and the side remap are pinned to the executable hash in
 // executable.cpp. The setters and HUD update were traced in Ghidra.
@@ -214,10 +215,12 @@ BattleWidgets visible_battle(const VisibleWidgets& screen, const BattleContext& 
         }
         side.guide = registered_widget(screen, context, prefix + "SkillGuideWidget", "SSSkillGuideSet");
         side.combo = registered_widget(screen, context, prefix + "ComboSeteWidget", "SSComboSet");
+        // Training can attach the charge guide on its own and leave the HUD registration empty.
+        if (!side.guide && context.display_side == index)
+            side.guide = viewport_widget(screen, names.guide, "SSSkillGuideSet");
         if (!context.hud || !side.main) continue;
         if (!side.ki) side.ki = viewport_widget(screen, names.ki, "SSSPGauge");
         if (!side.skill) side.skill = viewport_widget(screen, names.skill, "SSBlastGauge");
-        if (!side.guide) side.guide = viewport_widget(screen, names.guide, "SSSkillGuideSet");
         if (!side.combo) side.combo = viewport_widget(screen, names.combo, "SSComboSet");
     }
     found.timer = registered_widget(screen, context, "HUDWidgetSet.TimerWidget", "SSBattleTimer");
@@ -374,7 +377,8 @@ std::vector<std::string> visible_text(const VisibleWidgets& screen, ObjectRef ro
         if (!screen.game.visible(item) || std::ranges::find(excluded, item) != excluded.end() ||
             std::ranges::find(visited, item) != visited.end()) continue;
         visited.push_back(item);
-        if (screen.is_a(item, "TextBlock") || screen.is_a(item, "RichTextBlock")) {
+        if (screen.is_a(item, "TextBlock") || screen.is_a(item, "RichTextBlock") ||
+            screen.is_a(item, "SpTextBlock")) {
             if (screen.on_screen(item)) {
                 auto text = screen.game.text(item, "Text");
                 if (text.empty()) text = screen.game.call_text(item, "GetText");
@@ -411,7 +415,7 @@ std::vector<std::string> skill_guide(const VisibleWidgets& screen, ObjectRef gui
         }
         add_once(rows, join(labels, ", "));
     }
-    return rows;
+    return rows.empty() ? visible_text(screen, guide) : rows;
 }
 
 bool battle_menu(const VisibleWidgets& screen)
@@ -425,7 +429,7 @@ bool battle_menu(const VisibleWidgets& screen)
 
 }
 
-BattleReading BattleReader::sample(std::span<const ObjectRef> roots)
+BattleReading BattleReader::sample(std::span<const ObjectRef> roots, Clock::time_point now)
 {
     BattleReading result;
     if (roots.empty()) return result;
@@ -445,7 +449,7 @@ BattleReading BattleReader::sample(std::span<const ObjectRef> roots)
     } else if (result_missing_ < 3 && ++result_missing_ == 3) {
         last_result_.clear();
     }
-    if (!context.hud || !result.active || battle_menu(screen)) return result;
+    if (!context.hud || battle_menu(screen)) return result;
     if (context.hud != hud_ || context.controller != controller_) {
         hud_ = context.hud;
         controller_ = context.controller;
@@ -454,24 +458,48 @@ BattleReading BattleReader::sample(std::span<const ObjectRef> roots)
         time_.reset();
         guide_pawn_ = {};
         hold_time_.reset();
+        guide_hidden_since_.reset();
         guide_announced_ = false;
     }
 
     if (context.player_side >= 0) {
         const auto mine = context.pawns[context.player_side];
         const auto held = game_.call_bool(mine, "IsBattleKeyPressed", charge_key);
-        const auto hold_time = held == true ? game_.call_number(mine, "GetBattleKeyHoldTime", charge_key)
-                                           : std::nullopt;
-        if (guide_pawn_ != mine || (hold_time && hold_time_ && *hold_time + 0.001 < *hold_time_)) {
+        if (guide_pawn_ != mine) {
             guide_pawn_ = mine;
             guide_announced_ = false;
             hold_time_.reset();
+            guide_hidden_since_.reset();
         }
-        if (held == false) {
-            guide_announced_ = false;
-            hold_time_.reset();
+        if (held == true) {
+            const auto hold = game_.call_number(mine, "GetBattleKeyHoldTime", charge_key);
+            if (hold && *hold > 0) {
+                if (hold_time_ && *hold + 0.001 < *hold_time_) guide_announced_ = false;
+                hold_time_ = hold;
+            }
         }
-        if (hold_time) hold_time_ = hold_time;
+
+        const auto guide = widgets.sides[context.display_side].guide;
+        if (guide) {
+            // A continuous hold can hide individual rows or rebuild the visible guide.
+            // Test the hidden interval only when there is no native hold result.
+            if (!held && guide_hidden_since_ && now - *guide_hidden_since_ >= guide_off_interval)
+                guide_announced_ = false;
+            guide_hidden_since_.reset();
+            const auto rows = skill_guide(screen, guide);
+            result.guide_visible = !rows.empty();
+            result.items.insert(result.items.end(), rows.begin(), rows.end());
+            if (held != false && !guide_announced_ && !rows.empty()) {
+                result.guide = "Skill guide. " + join(rows, ". ");
+                guide_announced_ = true;
+            }
+        } else {
+            if (!guide_hidden_since_) guide_hidden_since_ = now;
+            if (held == false) {
+                guide_announced_ = false;
+                hold_time_.reset();
+            }
+        }
 
         for (int index = 0; index < 2; ++index) {
             const bool local = index == 0;
@@ -488,8 +516,7 @@ BattleReading BattleReader::sample(std::span<const ObjectRef> roots)
                 if (!shown) return;
                 auto text = describe(*shown);
                 result.items.push_back(text);
-                if (previous && *shown != *previous && (*shown / step != *previous / step || !*shown) &&
-                    (!local || held != true))
+                if (previous && *shown != *previous && (*shown / step != *previous / step || !*shown))
                     result.announcements.push_back(std::move(text));
                 previous = shown;
             };
@@ -530,15 +557,6 @@ BattleReading BattleReader::sample(std::span<const ObjectRef> roots)
             }
         }
 
-        if (const auto guide = widgets.sides[context.display_side].guide) {
-            const auto rows = skill_guide(screen, guide);
-            result.guide_visible = !rows.empty();
-            result.items.insert(result.items.end(), rows.begin(), rows.end());
-            if (held == true && !guide_announced_ && !rows.empty()) {
-                result.guide = "Skill guide. " + join(rows, ". ");
-                guide_announced_ = true;
-            }
-        }
     }
 
     if (widgets.timer != timer_) {
@@ -566,6 +584,7 @@ void BattleReader::reset()
     fighters_ = {};
     time_.reset();
     hold_time_.reset();
+    guide_hidden_since_.reset();
     guide_announced_ = false;
     last_result_.clear();
     result_missing_ = 0;

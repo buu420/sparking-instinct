@@ -1,5 +1,6 @@
 #include "reading_state.h"
 
+#include <array>
 #include <cstdlib>
 #include <iostream>
 
@@ -46,4 +47,24 @@ int main()
     state.reset();
     check(state.subtitle_changed("Here we go!"), "A map transition retained stale subtitle state");
     check(!state.tutorial_due("", start + 41s), "A map transition retained a tutorial reminder");
+
+    const std::array two_bars{std::string("Your ki, 2 bars")};
+    const std::array next_values{std::string("Your ki, 3 bars"), std::string("Your skill count, 2")};
+    state.update_hud(two_bars, two_bars, start);
+    state.update_hud(two_bars, {}, start + 650ms);
+    check(state.pending_hud() == two_bars[0], "Busy speech dropped a visible ki change");
+    state.update_hud(next_values, next_values, start + 1s);
+    check(state.pending_hud() == "Your ki, 3 bars. Your skill count, 2",
+          "HUD speech did not keep both the latest ki and the new skill count");
+    state.update_hud(next_values, {}, start + 7s);
+    check(state.pending_hud().empty(), "A late meter announcement was retained");
+
+    const std::array transition{std::string("Your Sparking mode ended")};
+    state.update_hud(two_bars, transition, start + 8s);
+    check(state.pending_hud() == transition[0], "A recent visible-gauge transition was dropped");
+    state.update_hud(two_bars, {}, start + 9s);
+    check(state.pending_hud().empty(), "A stale gauge transition remained pending");
+    state.update_hud(two_bars, two_bars, start + 10s);
+    state.update_hud({}, {}, start + 11s);
+    check(state.pending_hud().empty(), "The hidden HUD retained a pending meter");
 }

@@ -249,6 +249,22 @@ bool root_is_dialog(std::string_view type)
     return type.starts_with("WBP_Dialog_") || type.starts_with("WBP_GRP_AI_DecisionBranch");
 }
 
+bool operation_guide(std::string_view type)
+{
+    return type == "WBP_GRP_GuideSet_C";
+}
+
+bool controls_screen(std::string_view type)
+{
+    return one_of(type, {"WBP_GRP_SL_Main_0_C", "WBP_GRP_SL_Main_1_C",
+                         "WBP_GRP_SL_Main_1P_C", "WBP_GRP_SL_Main_2P_C"});
+}
+
+bool training_settings(std::string_view type)
+{
+    return type.starts_with("WBP_GRP_HUD_CSG_Trein_Set_");
+}
+
 bool tutorial_root(std::string_view type)
 {
     return one_of(type, {"WBP_GRP_TTR_HUD_TutorialAll_C", "WBP_GRP_HUD_CSG_HUD_Main_C"});
@@ -337,8 +353,8 @@ public:
         // Keep the focused surface and time-sensitive caption overlays ahead of large decorative trees.
         std::stable_sort(candidates.begin(), candidates.end(), [](const Root& a, const Root& b) {
             const auto priority = [](const Root& r) {
-                if (r.focus_path || root_is_dialog(r.type) || split_focus_surface(r.type)) return 0;
-                if (tutorial_root(r.type) || root_is_cinematic(r.type) ||
+                if (r.focus_path || root_is_dialog(r.type) || split_focus_surface(r.type) || controls_screen(r.type)) return 0;
+                if (tutorial_root(r.type) || root_is_cinematic(r.type) || operation_guide(r.type) ||
                     r.type == "WBP_MainMenu_Base_TextSub_C" || r.type == "WBP_GRP_BS_StageName_DP_C") return 1;
                 return 2;
             };
@@ -760,12 +776,13 @@ void collect_tutorial(GameReader& game, const WidgetTree& tree, ScreenReading& r
         } else if (node.type == "WBP_OBJ_HUD_CSG_CategolyText_C" ||
                    node.type == "WBP_OBJ_HUD_CSG_Command_BTN_C" ||
                    node.type == "WBP_OBJ_TRR_HUD_CMD_BTN_C" ||
+                   node.type == "WBP_OBJ_CSG_HUD_GuideText_C" ||
                    node.type == "WBP_OBJ_HUD_CSG_Com_Tips_C") {
             std::vector<std::string_view> lines;
             for (auto j = i + 1; j < node.end; ++j) {
                 const auto& leaf = tree[j];
                 if (leaf.text.empty() ||
-                    (!one_of(leaf.name, {"Text_Title", "Text_Comment", "Text_Comment_Large", "caption"}) &&
+                    (!one_of(leaf.name, {"Text_Title", "Text_Comment", "Text_Comment_Large", "caption", "RTEXT_Help", "RTEXT_Help_0"}) &&
                      !leaf.name.starts_with("RichText_PadButton"))) continue;
                 consumed.insert(j);
                 if (std::find(lines.begin(), lines.end(), leaf.text) == lines.end()) {
@@ -788,6 +805,96 @@ bool guide_group(std::string_view type)
            type.starts_with("WBP_OBJ_Common_HoldButton_") ||
            type.starts_with("WBP_OBJ_Common_HoldBTN_") ||
            type == "WBP_OBJ_Common_HoldBTN_Normal_0_C";
+}
+
+std::string help_prompt(const WidgetTree& tree, NodeIndex scope)
+{
+    auto keys = named_text(tree, scope, "RichText_Button_1");
+    auto action = named_text(tree, scope, "RTEXT_Help_1");
+    if (action.empty()) {
+        keys = named_text(tree, scope, "RTEXT_Button");
+        action = named_text(tree, scope, "RTEXT_Help");
+    }
+    return ui_detail::compose_help_prompt(named_text(tree, scope, "RTEXT_Help_0"), keys, action);
+}
+
+bool native_type(GameReader& game, ObjectRef object, std::string_view type)
+{
+    return object && game.engine().is_a(object, game.engine().find_class(type));
+}
+
+ObjectRef training_level_guide(GameReader& game, const WidgetTree& tree, ObjectRef world)
+{
+    ObjectRef result{};
+    for (const auto level : game.objects(world, "Levels", 96)) {
+        if (!level || game.object(level, "OwningWorld") != world ||
+            game.boolean(level, "bIsVisible") != true) continue;
+        const auto script = game.object(level, "LevelScriptActor");
+        if (!native_type(game, script, "SSTrainingBattleUiLevelScriptActor")) continue;
+        const auto menu = game.object(script, "MenuController");
+        if (!native_type(game, menu, "SSTrainingBattleUiController")) continue;
+        const auto guide = game.object(menu, "GuideWidget");
+        if (!tree.locate(guide)) continue;
+        if (result && result != guide) return {};
+        result = guide;
+    }
+    return result;
+}
+
+ObjectRef free_training_guide(GameReader& game, const WidgetTree& tree)
+{
+    bool has_guide = false;
+    for (const auto& root : tree.nodes()) {
+        if (root.parent != none) continue;
+        if (root_is_dialog(root.type) || controls_screen(root.type) || training_settings(root.type) ||
+            split_focus_surface(root.type) || root.type == "WBP_Pause_C" ||
+            root.type.starts_with("WBP_Option_")) return {};
+        if (operation_guide(root.type)) has_guide = true;
+    }
+    if (!has_guide) return {};
+
+    const auto instance = game.engine().game_instance();
+    // EKoratBattlePauseMode::Training is Free Training. Battle Training, practice
+    // demos, and the opening tutorial each have their own mode.
+    if (!native_type(game, instance, "SSGameInstance") || game.integer(instance, "BattlePauseMode") != 1) return {};
+    const auto players = game.objects(instance, "LocalPlayers", 1);
+    if (players.empty()) return {};
+    const auto controller = game.object(players.front(), "PlayerController");
+    if (!native_type(game, controller, "SSBattlePlayerController") ||
+        !game.call_bool(controller, "IsLocalPlayerController").value_or(false)) return {};
+    const auto hud = game.object(controller, "MyHUD");
+    if (!native_type(game, hud, "SSMainGameHUD") || game.object(hud, "PlayerOwner") != controller ||
+        game.boolean(hud, "bShowHUD") == false) return {};
+
+    const auto gameplay = game.object(controller, "GuideWidget");
+    if (tree.locate(gameplay)) return gameplay;
+    const auto world = game.object(game.engine().outer(controller), "OwningWorld");
+    if (world && game.object(world, "OwningGameInstance") == instance)
+        return training_level_guide(game, tree, world);
+    return {};
+}
+
+void collect_free_training_help(GameReader& game, const WidgetTree& tree, ScreenReading& result)
+{
+    const auto owner = free_training_guide(game, tree);
+    const auto guide = tree.locate(owner);
+    if (!guide || !operation_guide(tree[*guide].type) || !native_type(game, owner, "SSOperationGuideSet")) return;
+    const auto group = tree.locate(game.object(owner, "ButtonGuideWidget"));
+    const auto scope = group && *group > *guide && *group < tree[*guide].end ? *group : *guide;
+    auto prompt = unique_widget(tree, scope, [](const Node& node) {
+        return node.type == "WBP_OBJ_Guide_Btn_Present_C";
+    });
+    if (!prompt && scope != *guide) {
+        prompt = unique_widget(tree, *guide, [](const Node& node) {
+            return node.type == "WBP_OBJ_Guide_Btn_Present_C";
+        });
+    }
+    if (!prompt) return;
+    auto text = help_prompt(tree, *prompt);
+    if (text.empty()) return;
+    result.root = owner;
+    result.focus = {};
+    result.announcement = std::move(text);
 }
 
 void put_item(std::vector<Item>& items, const WidgetTree& tree, NodeIndex index, std::string text)
@@ -872,6 +979,16 @@ bool ui_detail::matches_menu_visual(std::string_view root, std::string_view hit,
     if (root == "WBP_GRP_BS_SetBGM_List_C") return suffix_number(visual, "WBP_OBJ_BS_SetBGMBTN_") == index;
     if (root == "WBP_GRP_BS_RuleSetting_DP_C") return suffix_number(visual, "WBP_OBJ_BS_SetRuleBTN_") == index;
     return false;
+}
+
+std::string ui_detail::compose_help_prompt(std::string_view combined, std::string_view keys, std::string_view action)
+{
+    if (!combined.empty()) return std::string(combined);
+    if (keys.empty() || action.empty()) return {};
+    std::string text(keys);
+    text += ", ";
+    text += action;
+    return text;
 }
 
 std::string read_ui_text(std::string_view rendered_text)
@@ -1023,6 +1140,8 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic)
 
     collect_subtitle(game_, tree, result, consumed, modal);
     collect_tutorial(game_, tree, result, consumed, modal);
+    if (!cinematic && result.announcement.empty() && result.tutorial.empty())
+        collect_free_training_help(game_, tree, result);
 
     std::vector<Item> items;
     bool shown_focus = false;
@@ -1042,11 +1161,18 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic)
             put_item(items, tree, i, value);
             consume_text(tree, i, consumed, {"Title", "Text_Title", "caption", "Text_Disable"});
         } else if (guide_group(node.type)) {
-            const auto keys = binding(tree, i);
-            const auto caption = named_text(tree, i, "caption");
-            if (!keys.empty() && !caption.empty() && tree.painted(i)) {
-                put_item(items, tree, i, keys + ", " + caption);
-                consume_text(tree, i, consumed, {"caption", "RichText_PadButton_0", "RichText_PadButton_1"});
+            auto prompt = help_prompt(tree, i);
+            if (!prompt.empty() && tree.painted(i)) {
+                put_item(items, tree, i, std::move(prompt));
+                consume_text(tree, i, consumed, {"RTEXT_Help_0", "RTEXT_Help_1", "RTEXT_Help",
+                                                 "RichText_Button_1", "RTEXT_Button"});
+            } else {
+                const auto keys = binding(tree, i);
+                const auto caption = named_text(tree, i, "caption");
+                if (!keys.empty() && !caption.empty() && tree.painted(i)) {
+                    put_item(items, tree, i, keys + ", " + caption);
+                    consume_text(tree, i, consumed, {"caption", "RichText_PadButton_0", "RichText_PadButton_1"});
+                }
             }
         } else if (node.type.starts_with("WBP_OBJ_BS_CharaIcon_") && character_grid(tree[node.root].type)) {
             const auto face = unique_widget(tree, i, [](const Node& leaf) {

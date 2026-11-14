@@ -14,6 +14,7 @@ using namespace sparking;
 
 struct Widget {
     std::string type, name;
+    std::string blueprint;
     std::map<std::string, ObjectRef, std::less<>> refs;
     std::map<std::string, std::vector<ObjectRef>, std::less<>> arrays;
     std::map<std::string, double, std::less<>> numbers;
@@ -84,7 +85,12 @@ bool Unreal::is_a(ObjectRef target, ObjectRef type) const
     return live(target) && live(type) && data(target).type == data(type).name;
 }
 std::string Unreal::name_of(ObjectRef target) { return target ? data(target).name : std::string{}; }
-std::string Unreal::class_name(ObjectRef target) { return target ? data(target).type : std::string{}; }
+std::string Unreal::class_name(ObjectRef target)
+{
+    if (!target) return {};
+    const auto& entry = data(target);
+    return entry.blueprint.empty() ? entry.type : entry.blueprint;
+}
 bool guarded_copy(void* destination, Address address, std::size_t bytes) noexcept
 {
     auto entry = records.upper_bound(address);
@@ -281,7 +287,7 @@ int main()
     data(player).numbers["GetBattleKeyHoldTime11"] = 0.05;
     check(!reader.sample(std::array{main, guide}).guide.empty(), "new hold between polls");
     data(player).flags["IsBattleKeyPressed11"] = false;
-    (void)reader.sample(std::array{main, guide});
+    (void)reader.sample(std::array{main});
     data(player).flags["IsBattleKeyPressed11"] = true;
     check(!reader.sample(std::array{main, guide}).guide.empty(), "second hold");
 
@@ -304,11 +310,18 @@ int main()
     check(contains(frame.items, "Your ki, 2 bars"), "visible native Ki segments");
     check(contains(frame.items, "Your skill count, 2"), "visible native Skill Count");
     check(contains(frame.items, "Your Sparking charge, 50 percent"), "visible native Sparking charge");
+    data(player).flags["IsBattleKeyPressed11"] = true;
+    store(sp, 0x49c, 3500.0f);
+    store(stock, 0x4ac, std::int32_t{3});
+    frame = reader.sample(std::array{main, sp, stock, guide});
+    check(contains(frame.announcements, "Your ki, 3 bars") &&
+          contains(frame.announcements, "Your skill count, 3"), "meter deltas while Charge is held");
+    data(player).flags["IsBattleKeyPressed11"] = false;
     data(segments.back()).shown = false;
     data(stock_image).numbers["Brush.DrawAs"] = 0;
     frame = reader.sample(std::array{main, sp, stock, sparking});
-    check(!contains(frame.items, "Your ki, 2 bars"), "hidden Ki segment prevents an inferred count");
-    check(!contains(frame.items, "Your skill count, 2"), "undrawn stock number");
+    check(!contains(frame.items, "Your ki, 3 bars"), "hidden Ki segment prevents an inferred count");
+    check(!contains(frame.items, "Your skill count, 3"), "undrawn stock number");
     store(sparking, 0x488, std::uint8_t{2});
     frame = reader.sample(std::array{main, sparking});
     check(contains(frame.announcements, "Your Sparking mode"), "visible native Sparking activation");
@@ -361,4 +374,36 @@ int main()
     data(infinity).shown = true;
     frame = reader.sample(std::array{main, timer});
     check(contains(frame.items, "No time limit"), "visible infinity timer");
+
+    // This representation is independently attached in Training, while the
+    // registered native guide pointer may be unavailable.
+    data(hud_root).refs.erase("HUDWidgetSet.P1SkillGuideWidget");
+    data(guide).blueprint = "WBP_Rep_SkillGuideSet_P1_C";
+    data(caption).type = "SpTextBlock";
+    data(player).flags["IsBattleKeyPressed11"] = true;
+    frame = reader.sample(std::array{guide});
+    check(frame.guide_visible && frame.guide.find("Instant Transmission") != std::string::npos,
+          "visible standalone local guide with the native text block");
+
+    // The visible tree also survives an absent slot binding.
+    data(guide).refs.erase("SkillGuideBStockSlot1");
+    data(player).flags.erase("IsBattleKeyPressed11");
+    reader.reset();
+    using namespace std::chrono_literals;
+    const auto start = BattleReader::Clock::time_point{};
+    frame = reader.sample(std::array{guide}, start);
+    check(frame.guide_visible && frame.guide.find("Instant Transmission") != std::string::npos &&
+          contains(frame.items, "Instant Transmission"), "visible guide fallback without native hold");
+    (void)reader.sample(std::array{main}, start + 20ms);
+    check(reader.sample(std::array{guide}, start + 200ms).guide.empty(), "short missing-API visibility blink");
+    (void)reader.sample(std::array{main}, start + 220ms);
+    check(!reader.sample(std::array{guide}, start + 1s).guide.empty(), "long missing-API off interval");
+    data(guide).blueprint = "WBP_Rep_SkillGuideSet_P2_C";
+    reader.reset();
+    frame = reader.sample(std::array{guide}, start);
+    check(!frame.guide_visible && frame.guide.empty(), "standalone opponent guide");
+    data(guide).blueprint = "WBP_Rep_SkillGuideSet_P1_C";
+    data(player).flags["IsBattleKeyPressed11"] = false;
+    frame = reader.sample(std::array{guide}, start);
+    check(frame.guide_visible && frame.guide.empty(), "no auto guide when native charge is false");
 }

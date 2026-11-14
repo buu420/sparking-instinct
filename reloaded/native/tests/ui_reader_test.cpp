@@ -11,6 +11,8 @@ int main()
         std::string_view expected;
     };
     constexpr Case cases[] = {
+        {R"(<icon id="Pad_Win" table="Windows" text="Q"/>+<icon id="Key_19" table="Windows"/> Reset Positions)", "Q + Tab Reset Positions"},
+        {R"(<icon id="Pad_06" table="XSX"/>+<icon id="Pad_00" table="XSX"/> Reset Positions)", "LB + Menu Reset Positions"},
         {R"(<icon id="Pad_03" table="XSX"/> Confirm)", "A Confirm"},
         {R"(<icon table='PS5' id='Pad_03' /> Confirm)", "Cross Confirm"},
         {R"(<icon id="Pad_03" table="PS4"/> Confirm)", "Cross Confirm"},
@@ -58,6 +60,14 @@ int main()
                       << ", " << test.visual << '\n';
             return EXIT_FAILURE;
         }
+    }
+    using sparking::ui_detail::compose_help_prompt;
+    if (compose_help_prompt("LB + Menu Reset Positions", "B", "Back") != "LB + Menu Reset Positions" ||
+        compose_help_prompt("", "Backspace", "Back") != "Backspace, Back" ||
+        !compose_help_prompt("", "", "Back").empty() ||
+        !compose_help_prompt("", "Backspace", "").empty()) {
+        std::cerr << "Guide prompt must use the complete visible binding and action\n";
+        return EXIT_FAILURE;
     }
     return EXIT_SUCCESS;
 }

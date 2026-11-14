@@ -1,9 +1,14 @@
 #include "reading_state.h"
 
+#include <algorithm>
+
 namespace sparking {
 namespace {
 constexpr auto tutorial_repeat = std::chrono::seconds(20);
 constexpr unsigned missing_samples = 3;
+constexpr auto hud_value_lifetime = std::chrono::seconds(6);
+constexpr auto hud_transition_lifetime = std::chrono::milliseconds(650);
+constexpr std::size_t maximum_hud_lines = 24;
 }
 
 void ReadingState::reset()
@@ -59,6 +64,37 @@ bool ReadingState::subtitle_changed(const std::string& value)
     if (subtitle_ == value) return false;
     subtitle_ = value;
     return true;
+}
+
+void ReadingState::update_hud(std::span<const std::string> visible, std::span<const std::string> changes,
+                              Clock::time_point now)
+{
+    if (visible.empty()) {
+        clear_hud();
+        return;
+    }
+    const auto is_visible = [&](const std::string& text) {
+        return std::ranges::find(visible, text) != visible.end();
+    };
+    std::erase_if(hud_, [&](const HudLine& line) {
+        return now >= line.expiry || (line.needs_visible_item && !is_visible(line.text));
+    });
+    for (const auto& text : changes) {
+        if (text.empty() || std::ranges::find(hud_, text, &HudLine::text) != hud_.end()) continue;
+        if (hud_.size() >= maximum_hud_lines) break;
+        const bool meter = is_visible(text);
+        hud_.push_back({text, now + (meter ? hud_value_lifetime : hud_transition_lifetime), meter});
+    }
+}
+
+std::string ReadingState::pending_hud() const
+{
+    std::string text;
+    for (const auto& line : hud_) {
+        if (!text.empty()) text += ". ";
+        text += line.text;
+    }
+    return text;
 }
 
 }
