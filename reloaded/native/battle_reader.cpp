@@ -430,6 +430,7 @@ constexpr std::array guide_slots{
     GuideSlot{"SkillGuideBStockSlot1", "SkillGuide_TypeA_01"},
     GuideSlot{"SkillGuideBStockSlot2", "SkillGuide_TypeA_02"}
 };
+constexpr std::size_t ultimate_guide_slot = 2;
 
 ObjectRef visible_child(const VisibleWidgets& screen, ObjectRef root, std::string_view name)
 {
@@ -462,10 +463,11 @@ std::string painted_guide_text(const VisibleWidgets& screen, ObjectRef widget)
 
 struct GuideRows {
     std::array<std::string, guide_slots.size()> text;
+    std::string ultimate_button;
     bool has_blasts{};
 };
 
-GuideRows skill_guide(const VisibleWidgets& screen, ObjectRef guide)
+GuideRows skill_guide(const VisibleWidgets& screen, ObjectRef guide, bool sparking_charge_popup)
 {
     constexpr std::array<std::string_view, 2> titles{"TEXT_SkillName", "TEXT_SkillName_01"};
     constexpr std::array<std::string_view, 2> buttons{"GuideButton", "GuideButton_01"};
@@ -476,22 +478,40 @@ GuideRows skill_guide(const VisibleWidgets& screen, ObjectRef guide)
         const auto bound = screen.game.object(guide, slot.field);
         const auto row = screen.is_a(bound, "SSSkillGuideBase") && screen.attached(bound, guide) &&
                          screen.game.geometry(bound) ? bound : visible_child(screen, guide, slot.name);
-        if (i < 2 && (row || bound)) rows.has_blasts = true;
+        if (i < ultimate_guide_slot && (row || bound)) rows.has_blasts = true;
         if (!screen.is_a(row, "SSSkillGuideBase")) continue;
+
+        auto guide_button = [&](std::size_t variant) {
+            const auto key = screen.game.object(row, button_fields[variant]);
+            if (screen.is_a(key, "RichTextBlock") && screen.attached(key, row)) {
+                auto glyph = painted_guide_text(screen, key);
+                if (!glyph.empty()) return glyph;
+            }
+            const auto painted = visible_child(screen, row, buttons[variant]);
+            return screen.is_a(painted, "RichTextBlock") ? painted_guide_text(screen, painted) : std::string{};
+        };
 
         // A slot can present a second style of caption and glyph. Match each
         // painted caption to the glyph variant in its own row.
         for (std::size_t variant = 0; variant < titles.size(); ++variant) {
             auto label = painted_guide_text(screen, visible_child(screen, row, titles[variant]));
             if (label.empty()) continue;
-            const auto bound_key = screen.game.object(row, button_fields[variant]);
-            auto glyph = screen.attached(bound_key, row) ? painted_guide_text(screen, bound_key) : std::string{};
-            if (glyph.empty())
-                glyph = painted_guide_text(screen, visible_child(screen, row, buttons[variant]));
+            auto glyph = guide_button(variant);
             if (glyph.empty()) continue;
             rows.text[i] = std::move(label) + ", " + glyph;
             break;
         }
+        if (i != ultimate_guide_slot || !rows.text[i].empty() || !sparking_charge_popup ||
+            screen.game.engine().name_of(row) != slot.name || !screen.is_a(row, "SSSkillGuideTypeC_Ultimate"))
+            continue;
+
+        // This row can display its control without displaying a move name.
+        auto first = guide_button(0);
+        auto second = guide_button(1);
+        if (first.empty() == second.empty()) continue;
+        auto& glyph = first.empty() ? second : first;
+        if (glyph.find("Unidentified control") == glyph.npos)
+            rows.ultimate_button = std::move(glyph);
     }
     return rows;
 }
@@ -557,7 +577,9 @@ BattleReading BattleReader::sample(std::span<const ObjectRef> roots, Clock::time
             }
         }
 
-        const auto guide = widgets.sides[context.display_side].guide;
+        const auto& local_side = widgets.sides[context.display_side];
+        const auto local_sparking = sparking(screen, local_side.sparking_meter);
+        const auto guide = local_side.guide;
         if (guide) {
             const bool charge_popup =
                 game_.engine().class_name(guide) == battle_sides[context.display_side].guide;
@@ -566,22 +588,29 @@ BattleReading BattleReader::sample(std::span<const ObjectRef> roots, Clock::time
             if (held != true && guide_hidden_since_ && now - *guide_hidden_since_ >= guide_off_interval)
                 rearm_guide();
             guide_hidden_since_.reset();
-            const auto rows = skill_guide(screen, guide);
+            const auto rows = skill_guide(screen, guide, charge_popup && local_sparking && local_sparking->mode == 2);
             for (const auto& row : rows.text) add_once(result.items, row);
+            if (!rows.ultimate_button.empty()) add_once(result.items, "Ultimate Blast, " + rows.ultimate_button);
             result.guide_visible = !result.items.empty();
             // The game can mask the pawn's Charge key while this exact HUD is painted.
             if ((held != false || charge_popup) && result.guide_visible) {
                 if (!guide_first_row_) guide_first_row_ = now;
-                const bool opening = std::ranges::none_of(guide_announced_, [](bool value) { return value; });
+                const bool opening = !guide_ultimate_button_announced_ &&
+                                     std::ranges::none_of(guide_announced_, [](bool value) { return value; });
                 const bool settling = rows.has_blasts && (rows.text[0].empty() || rows.text[1].empty()) &&
                                       now - *guide_first_row_ < guide_paint_interval;
                 if (!opening || !settling) {
                     std::array<std::vector<std::string>, 3> groups;
                     for (std::size_t i = 0; i < rows.text.size(); ++i) {
                         if (guide_announced_[i] || rows.text[i].empty()) continue;
-                        const std::size_t group = i < 2 ? 0 : (i == 2 ? 1 : 2);
+                        const std::size_t group = i < ultimate_guide_slot ? 0 : (i == ultimate_guide_slot ? 1 : 2);
                         add_once(groups[group], rows.text[i]);
                         guide_announced_[i] = true;
+                    }
+                    if (!guide_ultimate_button_announced_ && !guide_announced_[ultimate_guide_slot] &&
+                        !rows.ultimate_button.empty()) {
+                        add_once(groups[1], rows.ultimate_button);
+                        guide_ultimate_button_announced_ = true;
                     }
                     constexpr std::array headings{"Blasts. ", "Ultimate Blast. ", "Skills. "};
                     for (std::size_t group = 0; group < groups.size(); ++group) {
@@ -624,7 +653,7 @@ BattleReading BattleReader::sample(std::span<const ObjectRef> roots, Clock::time
             meter(fighter.ki, ki(screen, side.ki), [&](int x) { return gauge_text(owner, "ki", x); }, 1);
             meter(fighter.skill, skill(screen, side.skill),
                   [&](int x) { return std::string(owner) + " skill count, " + std::to_string(x); }, 1);
-            if (const auto gauge = sparking(screen, side.sparking_meter)) {
+            if (const auto gauge = local ? local_sparking : sparking(screen, side.sparking_meter)) {
                 const bool active = gauge->mode == 2;
                 const auto mode_text = std::string(owner) + " Sparking mode";
                 if (active) result.items.push_back(mode_text);
@@ -683,6 +712,7 @@ BattleReading BattleReader::sample(std::span<const ObjectRef> roots, Clock::time
 void BattleReader::rearm_guide()
 {
     guide_announced_.fill(false);
+    guide_ultimate_button_announced_ = false;
     guide_first_row_.reset();
 }
 

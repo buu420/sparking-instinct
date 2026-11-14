@@ -88,7 +88,10 @@ ObjectRef Unreal::find_class(std::string_view name)
 }
 bool Unreal::is_a(ObjectRef target, ObjectRef type) const
 {
-    return live(target) && live(type) && data(target).type == data(type).name;
+    if (!live(target) || !live(type)) return false;
+    const auto& actual = data(target).type;
+    const auto& expected = data(type).name;
+    return actual == expected || (actual == "SSSkillGuideTypeC_Ultimate" && expected == "SSSkillGuideBase");
 }
 std::string Unreal::name_of(ObjectRef target) { return target ? data(target).name : std::string{}; }
 std::string Unreal::class_name(ObjectRef target)
@@ -501,4 +504,46 @@ int main()
     data(blast).shown = false;
     frame = reader.sample(std::array{guide}, start + 1100ms);
     check(!contains(frame.items, "Super Kamehameha, X"), "hidden Blast leaves the manual review");
+
+    const auto ultimate_row = game.object(game.object(ultimate, "Slot"), "Parent");
+    const auto ultimate_button = game.object(ultimate_row, "GuideButtonText");
+    data(ultimate_row).type = "SSSkillGuideTypeC_Ultimate";
+    data(guide).refs["SkillGuideUltimate"] = ultimate_row;
+    data(blast).shown = data(second_blast).shown = true;
+    data(sparking).shown = true;
+    store(sparking, 0x488, std::uint8_t{1});
+    data(player).flags["IsBattleKeyPressed11"] = false;
+    reader.reset();
+    const std::array with_gauge{guide, sparking_wrapper};
+    frame = reader.sample(with_gauge, start);
+    check(frame.guide_opened && !contains(frame.items, "Ultimate Blast, B") &&
+          !contains(frame.items, "Super Spirit Bomb, B"), "a charging gauge cannot qualify an uncaptioned button");
+    store(sparking, 0x488, std::uint8_t{2});
+    frame = reader.sample(with_gauge, start + 80ms);
+    check(!frame.guide_opened && frame.guide == "Ultimate Blast. B" &&
+          contains(frame.items, "Ultimate Blast, B") && !contains(frame.items, "Super Spirit Bomb, B"),
+          "announce the painted Ultimate action in Sparking while its title is hidden");
+    check(reader.sample(with_gauge, start + 160ms).guide.empty(), "an uncaptioned Ultimate speaks once per hold");
+    data(ultimate).shown = true;
+    frame = reader.sample(with_gauge, start + 240ms);
+    check(!frame.guide_opened && frame.guide == "Ultimate Blast. Super Spirit Bomb, B" &&
+          contains(frame.items, "Super Spirit Bomb, B"), "announce an Ultimate name once it paints");
+    data(ultimate).shown = false;
+    check(reader.sample(with_gauge, start + 320ms).guide.empty(), "no fallback repeated after the painted name");
+
+    reader.reset();
+    frame = reader.sample(std::array{guide}, start);
+    check(!contains(frame.items, "Ultimate Blast, B"), "Sparking gauge must be visibly attached");
+    reader.reset();
+    data(ultimate_button).shown = false;
+    frame = reader.sample(with_gauge, start);
+    check(!contains(frame.items, "Ultimate Blast, B"), "Ultimate glyph must be painted");
+    data(ultimate_button).shown = true;
+    data(ultimate_row).shown = false;
+    frame = reader.sample(with_gauge, start + 80ms);
+    check(!contains(frame.items, "Ultimate Blast, B"), "Ultimate row must be painted");
+    data(ultimate_row).shown = true;
+    data(guide).blueprint = "WBP_Rep_TransformGuideSet_P1_C";
+    frame = reader.sample(with_gauge, start + 160ms);
+    check(!contains(frame.items, "Ultimate Blast, B"), "only the local Charge popup qualifies the fallback");
 }

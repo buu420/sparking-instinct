@@ -45,6 +45,7 @@ private:
     std::optional<Clock::time_point> guide_hidden_since_;
     std::optional<Clock::time_point> guide_first_row_;
     std::array<bool, 5> guide_announced_{};
+    bool guide_ultimate_button_announced_{};
     std::string last_result_;
     unsigned result_missing_{};
 };
