@@ -542,4 +542,48 @@ int main()
     data(guide).blueprint = "WBP_Rep_TransformGuideSet_P1_C";
     frame = reader.sample(with_gauge, start + 160ms);
     check(!contains(frame.items, "Ultimate Blast, B"), "only the local Charge popup qualifies the fallback");
+
+    const auto assigned = add("SSCharacterBlastUltimate");
+    const auto assigned_asset = add("SSBlastUltimateDataAsset");
+    const auto other_ultimate = add("SSCharacterBlastUltimate");
+    data(player).refs["BlastUltimate"] = assigned;
+    data(assigned).refs["BlastUltimateData"] = assigned_asset;
+    data(enemy).refs["BlastUltimate"] = other_ultimate;
+    data(assigned).text["BlastUltimateParameter.BlastUltimateName"] = "Super Spirit Bomb";
+    data(assigned_asset).text["BlastUltimateParamData.BlastUltimateName"] = "Assigned asset name";
+    data(other_ultimate).text["BlastUltimateParameter.BlastUltimateName"] = "Opponent move";
+    data(guide).blueprint = "WBP_Rep_SkillGuideSet_P1_C";
+    data(ultimate_row).type = "WBP_Rep_SkillGuide_TypeC_P1_C";
+    data(ultimate_row).has_geometry = false;
+    reader.reset();
+    frame = reader.sample(with_gauge, start);
+    check(frame.guide.find("Ultimate Blast. Super Spirit Bomb, B") != frame.guide.npos &&
+          contains(frame.items, "Super Spirit Bomb, B"), "use the local fighter's assigned name for its painted button");
+    data(assigned).text.clear();
+    reader.reset();
+    frame = reader.sample(with_gauge, start);
+    check(contains(frame.items, "Assigned asset name, B"), "resolve the same assigned asset's localized label");
+    data(assigned).type = "SSCharacterBlastSkill";
+    reader.reset();
+    frame = reader.sample(with_gauge, start);
+    check(contains(frame.items, "Ultimate Blast, B") && !contains(frame.items, "Assigned asset name, B") &&
+          !contains(frame.items, "Opponent move, B"), "incorrect assignment type keeps the button-only cue");
+    data(assigned).type = "SSCharacterBlastUltimate";
+    data(assigned_asset).type = "OtherAsset";
+    reader.reset();
+    frame = reader.sample(with_gauge, start);
+    check(contains(frame.items, "Ultimate Blast, B"), "an incorrect asset type keeps the button-only cue");
+
+    data(ultimate_row).type = "SSSkillGuideBase";
+    data(ultimate_row).has_geometry = data(ultimate).shown = true;
+    data(assigned).text["BlastUltimateParameter.BlastUltimateName"] = "Other selected move";
+    reader.reset();
+    frame = reader.sample(with_gauge, start);
+    check(contains(frame.items, "Super Spirit Bomb, B") && !contains(frame.items, "Other selected move, B"),
+          "the painted caption takes priority over stored text");
+    data(ultimate).shown = data(ultimate_button).shown = false;
+    reader.reset();
+    frame = reader.sample(with_gauge, start);
+    check(frame.guide.find("Ultimate Blast") == frame.guide.npos && !contains(frame.items, "Other selected move, B"),
+          "no assigned name without a painted control");
 }

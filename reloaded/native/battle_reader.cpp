@@ -512,6 +512,20 @@ std::string visible_ultimate_button(GameReader& game, ObjectRef guide)
     return glyph;
 }
 
+std::string assigned_ultimate_name(const VisibleWidgets& screen, ObjectRef pawn)
+{
+    auto& game = screen.game;
+    const auto blast = game.object(pawn, "BlastUltimate");
+    if (!screen.is_a(blast, "SSCharacterBlastUltimate")) return {};
+
+    // The native HUD sends this parameter to the visible Ultimate row.
+    auto name = read_ui_text(game.text(blast, "BlastUltimateParameter.BlastUltimateName"));
+    if (!name.empty()) return name;
+    const auto asset = game.object(blast, "BlastUltimateData");
+    return screen.is_a(asset, "SSBlastUltimateDataAsset") ?
+        read_ui_text(game.text(asset, "BlastUltimateParamData.BlastUltimateName")) : std::string{};
+}
+
 struct GuideRows {
     std::array<std::string, guide_slots.size()> text;
     std::string ultimate_button;
@@ -631,7 +645,14 @@ BattleReading BattleReader::sample(std::span<const ObjectRef> roots, Clock::time
             if (held != true && guide_hidden_since_ && now - *guide_hidden_since_ >= guide_off_interval)
                 rearm_guide();
             guide_hidden_since_.reset();
-            const auto rows = skill_guide(screen, guide, charge_popup && local_sparking && local_sparking->mode == 2);
+            auto rows = skill_guide(screen, guide, charge_popup && local_sparking && local_sparking->mode == 2);
+            if (!rows.ultimate_button.empty()) {
+                auto name = assigned_ultimate_name(screen, mine);
+                if (!name.empty()) {
+                    rows.text[ultimate_guide_slot] = std::move(name) + ", " + rows.ultimate_button;
+                    rows.ultimate_button.clear();
+                }
+            }
             for (const auto& row : rows.text) add_once(result.items, row);
             if (!rows.ultimate_button.empty()) add_once(result.items, "Ultimate Blast, " + rows.ultimate_button);
             result.guide_visible = !result.items.empty();
