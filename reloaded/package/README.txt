@@ -1,7 +1,7 @@
 Sparking Instinct for DRAGON BALL: Sparking! ZERO, version 0.1.3 beta
 
 Original Sparking Zero Access reader by Jessica Tegner and contributors.
-The Reloaded II and Prism port is maintained by Buu420.
+Buu420 made the audio descriptions and maintains the Reloaded II and Prism port.
 
 This package targets the 64-bit Steam game build 24953175, version
 3022.021.003.012.015. Check menu speech, the controls list, training

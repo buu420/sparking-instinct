@@ -2,7 +2,7 @@
 
 Sparking Instinct brings screen reader speech to DRAGON BALL: Sparking! ZERO on Steam. It reads supported menus, character selection, training, controls, battle gauges, and story text. It includes timed audio description for the main opening and the post-tutorial movie.
 
-**Jessica Tegner and the Sparking Zero Access contributors created the original reader.** Buu420 maintains this Reloaded II and Prism port. [Sparking Zero Access](https://github.com/AccessForge/SparkingZeroAccess) · [Earlier upstream repair](https://github.com/AccessForge/SparkingZeroAccess/pull/7)
+**Jessica Tegner and the Sparking Zero Access contributors created the original Lua reader.** Buu420 ported the mod to Reloaded II and Prism and made the audio descriptions for both movies. [Sparking Zero Access](https://github.com/AccessForge/SparkingZeroAccess) · [Earlier upstream repair](https://github.com/AccessForge/SparkingZeroAccess/pull/7)
 
 ## Install
 

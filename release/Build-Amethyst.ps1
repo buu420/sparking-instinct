@@ -48,7 +48,7 @@ F6 reads the screen. F7 and F8 review the previous and next item. F9 toggles
 automatic subtitle speech. See the release page for controls and coverage.
 
 Original Sparking Zero Access reader by Jessica Tegner and contributors.
-The Reloaded II and Prism port is maintained by Buu420.
+Buu420 made the audio descriptions and maintains the Reloaded II and Prism port.
 '@
 [IO.File]::WriteAllText((Get-SafeReloadedPath $manager 'README.txt'),$ammReadme,$SparkingUtf8)
 foreach ($name in @('Reloaded-InstallCommon.ps1','Reloaded-Payload.ps1','Reloaded-Legacy.ps1','Prepare-Reader.ps1','ReaderPlan.json')) {
