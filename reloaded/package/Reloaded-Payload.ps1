@@ -11,7 +11,7 @@ $SparkingAutoStartSource = 'AutoStart/dsound.dll'
 $SparkingAutoStartGamePath = 'dsound.dll'
 $SparkingLoaderFolder = 'Loader\x64'
 $SparkingLocalLoaderFiles = @('Reloaded.Mod.Loader.dll','Reloaded.Mod.Loader.deps.json','Reloaded.Mod.Loader.runtimeconfig.json')
-$SparkingPackageVersion = '0.2.0'
+$SparkingPackageVersion = '0.2.1'
 $SparkingPrismHash = '7C7D09C8C7306E8E1A0C46D603CCB2A391C194C77843400C11B746E7DD56A467'
 $SparkingNarrationFiles = @('cue-sheet.json') +
     @(1..18 | ForEach-Object { 'op2-{0:00}.wav' -f $_ }) +

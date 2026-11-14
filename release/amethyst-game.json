@@ -17,43 +17,14 @@
   "languages": [
     "en"
   ],
-  "dependencies": [
-    {
-      "id": "dotnet-9-desktop-x64",
-      "type": "system",
-      "targetPlatforms": [
-        "windows"
-      ],
-      "minVersion": "9.0.8",
-      "check": {
-        "registryKey": "SOFTWARE\\dotnet\\Setup\\InstalledVersions\\x64\\sharedfx\\Microsoft.WindowsDesktop.App",
-        "registryValue": "9.0.23",
-        "registryView": "both"
-      },
-      "fix": {
-        "downloadUrl": "https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/9.0.23/windowsdesktop-runtime-9.0.23-win-x64.exe",
-        "autoInstall": {
-          "kind": "runInstaller",
-          "args": [
-            "/install",
-            "/quiet",
-            "/norestart"
-          ],
-          "needsAdmin": true,
-          "sha256": "eefb60bd0f3fb33c0787074cebc0467ffba32bcb01088613121649fc3bdb4a27"
-        }
-      },
-      "required": true,
-      "isGameInstaller": false
-    }
-  ],
+  "dependencies": [],
   "defaultPreInstall": {
     "executable": "setup/Prepare-AmethystInstall.ps1",
     "needsAdmin": false,
     "failureFatal": true,
-    "what": "Verify the Steam game build and check for another loader before installing Sparking Instinct.",
-    "why": "Sparking Instinct reads game data using build-specific bindings. The check also prevents overwriting another loader.",
-    "modifies": "Reads the game folder and package file list. Amethyst copies and records the bundled files after this check.",
+    "what": "Verify the Steam build and check for a loader conflict and a compatible x64 .NET 9 Desktop Runtime.",
+    "why": "Sparking Instinct uses build-specific bindings and Reloaded II needs the .NET 9 Desktop Runtime.",
+    "modifies": "Reads the game folder and installed runtime versions. If the runtime is missing, downloads Microsoft's installer and asks for Windows administrator approval. Amethyst copies the mod files after setup.",
     "installToGameFolder": false,
     "runOnUpdate": true,
     "runFromGameFolder": false

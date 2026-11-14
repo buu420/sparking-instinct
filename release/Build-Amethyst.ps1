@@ -38,8 +38,8 @@ foreach ($item in @($package.files)) {
 Copy-ReloadedPackageFile (Get-SafeReloadedPath $source $package.autoStart.path) (Get-SafeReloadedPath $win64 'dsound.dll') $package.autoStart.sha256
 $startupReceipt = [ordered]@{ installOwner='Amethyst'; modId=$SparkingReloadedModId; version=$SparkingPackageVersion }
 Set-ReloadedJson (Get-SafeReloadedPath $manager $SparkingReceiptPath) $startupReceipt
-$ammReadme = @'
-Sparking Instinct 0.2.0 beta for DRAGON BALL: Sparking! ZERO.
+$ammReadme = @"
+Sparking Instinct $SparkingPackageVersion beta for DRAGON BALL: Sparking! ZERO.
 
 This copy is installed and removed by Amethyst. To play, launch the game as
 usual from Steam or the Steam desktop shortcut. Use Amethyst to uninstall.
@@ -48,7 +48,7 @@ F6 reads the screen. F7 and F8 review the previous and next item. F9 toggles
 automatic subtitle speech. See the release page for controls and coverage.
 
 Buu420 made the audio descriptions and maintains this native Reloaded II mod.
-'@
+"@
 [IO.File]::WriteAllText((Get-SafeReloadedPath $manager 'README.txt'),$ammReadme,$SparkingUtf8)
 foreach ($name in @('Reloaded-InstallCommon.ps1','Reloaded-Payload.ps1','Reloaded-Legacy.ps1')) {
     [IO.File]::Copy((Get-SafeReloadedPath $PackageDirectory $name),(Get-SafeReloadedPath $setup $name))

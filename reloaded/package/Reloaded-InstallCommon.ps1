@@ -164,17 +164,23 @@ function Exit-SparkingReloadedLock($Mutex) {
     if ($Mutex) { $Mutex.ReleaseMutex(); $Mutex.Dispose() }
 }
 
-function Assert-ReloadedDesktopRuntime {
-    $dotnet = Join-Path $env:ProgramFiles 'dotnet\dotnet.exe'
-    if ([IO.File]::Exists($dotnet)) {
-        $runtimes = @(& $dotnet --list-runtimes)
-        $hasCore = $false
-        $hasDesktop = $false
-        foreach ($line in $runtimes) {
-            if ($line -match '^Microsoft\.NETCore\.App (9\.0\.\d+) ' -and [version]$Matches[1] -ge [version]'9.0.8') { $hasCore = $true }
-            if ($line -match '^Microsoft\.WindowsDesktop\.App (9\.0\.\d+) ' -and [version]$Matches[1] -ge [version]'9.0.8') { $hasDesktop = $true }
-        }
-        if ($hasCore -and $hasDesktop) { return }
+function Test-ReloadedDesktopRuntime {
+    $programFiles = if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }
+    $dotnet = Join-Path $programFiles 'dotnet\dotnet.exe'
+    if (-not [IO.File]::Exists($dotnet)) { return $false }
+    $runtimes = @(& $dotnet --list-runtimes)
+    if ($LASTEXITCODE -ne 0) { return $false }
+    $hasCore = $false
+    $hasDesktop = $false
+    foreach ($line in $runtimes) {
+        if ($line -match '^Microsoft\.NETCore\.App (9\.0\.\d+) ' -and [version]$Matches[1] -ge [version]'9.0.8') { $hasCore = $true }
+        if ($line -match '^Microsoft\.WindowsDesktop\.App (9\.0\.\d+) ' -and [version]$Matches[1] -ge [version]'9.0.8') { $hasDesktop = $true }
     }
-    throw 'Install the x64 Microsoft .NET 9 Desktop Runtime 9.0.8 or later, then try again. https://dotnet.microsoft.com/download/dotnet/9.0'
+    return ($hasCore -and $hasDesktop)
+}
+
+function Assert-ReloadedDesktopRuntime {
+    if (-not (Test-ReloadedDesktopRuntime)) {
+        throw 'Install the x64 Microsoft .NET 9 Desktop Runtime 9.0.8 or later, then try again. https://dotnet.microsoft.com/download/dotnet/9.0'
+    }
 }

@@ -1,4 +1,4 @@
-# Build Sparking Instinct 0.2.0
+# Build Sparking Instinct 0.2.1
 
 Build on Windows x64 with CMake 3.23 or later, Visual Studio 2022 C++ tools, and a .NET SDK targeting .NET 9. Use the x64 Microsoft.NETCore.App.Host.win-x64 9.0.15 NuGet package and the official Prism DLL. CMake verifies the pinned MinHook source archive. [Prism dependency lock](../reloaded/speech/prism-lock.json)
 

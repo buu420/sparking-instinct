@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.23)
-project(SparkingInstinct VERSION 0.2.0 LANGUAGES C CXX)
+project(SparkingInstinct VERSION 0.2.1 LANGUAGES C CXX)
 
 if(NOT MSVC OR NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     message(FATAL_ERROR "Build SparkingZeroAccess with MSVC for Windows x64.")

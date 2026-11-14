@@ -6,7 +6,7 @@ Buu420 maintains Sparking Instinct and made the audio descriptions for both movi
 
 ## Install
 
-The beta supports **Windows x64, Steam build 24953175 (game version 3022.021.003.012.015)**, and requires the x64 **.NET 9 Desktop Runtime**. The ZIP includes the native reader, game-local Reloaded II loader, Prism, and both audio descriptions. Amethyst can install the .NET prerequisite separately if needed.
+The beta supports **Windows x64, Steam build 24953175 (game version 3022.021.003.012.015)**, and requires the x64 **.NET 9 Desktop Runtime**, version 9.0.8 or a later .NET 9 patch. The ZIP includes the native reader, game-local Reloaded II loader, Prism, and both audio descriptions. Amethyst setup reuses a compatible runtime or offers Microsoft's installer if one is missing.
 
 - **Amethyst:** Close the game, find **Sparking Instinct (Beta)** under **DRAGON BALL: Sparking! ZERO** in the Buu420 source, and choose Install. Amethyst will ask before running the script that checks your game build and looks for a conflicting loader. Use Amethyst to uninstall. [Buu420 catalog](https://github.com/buu420/buu-s-mods)
 - **Standalone:** Close the game, extract the Windows ZIP, and run `Install.cmd`. It finds the Steam install or opens a folder picker. Use `Uninstall.cmd` to remove a standalone install. [GitHub releases](https://github.com/buu420/sparking-instinct/releases)
