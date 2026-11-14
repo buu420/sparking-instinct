@@ -208,7 +208,7 @@ void Runtime::sample(Clock::time_point now)
     // A newly opened move guide takes priority over queued gauges. Later
     // battle cues append so the guide can finish while the player holds Charge.
     const bool in_battle = (hud_.active && !hud_.items.empty()) || !screen_.battle_help.empty();
-    const bool speaking = speak(together(lines), !hud_.guide.empty() || !in_battle);
+    const bool speaking = speak(together(lines), hud_.guide_opened || !in_battle);
     if (!hud_.guide.empty())
         next_battle_speech_ = now + battle_speech_gap;
     if (!speaking && now >= next_battle_speech_) {

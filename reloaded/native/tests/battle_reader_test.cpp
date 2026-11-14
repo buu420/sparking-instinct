@@ -266,9 +266,9 @@ int main()
     store(sparking, 0x504, 2500.0f);
 
     const auto guide = add("SSSkillGuideSet");
-    const auto row = add("SSSkillGuideBase");
-    const auto caption = add("TextBlock");
-    const auto key = add("RichTextBlock");
+    const auto row = add("SSSkillGuideBase", "SkillGuide_TypeA_01");
+    const auto caption = add("TextBlock", "TEXT_SkillName");
+    const auto key = add("RichTextBlock", "GuideButton");
     data(hud_root).refs["HUDWidgetSet.P1SkillGuideWidget"] = guide;
     data(guide).refs["SkillGuideBStockSlot1"] = row;
     data(row).refs["GuideButtonText"] = key;
@@ -424,7 +424,7 @@ int main()
     const auto start = BattleReader::Clock::time_point{};
     frame = reader.sample(std::array{guide}, start);
     check(frame.guide_visible && frame.guide.find("Instant Transmission") != std::string::npos &&
-          contains(frame.items, "Instant Transmission"), "visible guide fallback without native hold");
+          contains(frame.items, "Instant Transmission, Y"), "visible guide fallback without native hold");
     (void)reader.sample(std::array{main}, start + 20ms);
     check(reader.sample(std::array{guide}, start + 200ms).guide.empty(), "short missing-API visibility blink");
     (void)reader.sample(std::array{main}, start + 220ms);
@@ -447,4 +447,58 @@ int main()
     reader.reset();
     frame = reader.sample(std::array{guide}, start);
     check(frame.guide.empty(), "unrecognized visual is ineligible for false-key fallback");
+
+    const auto bind_guide_row = [&](std::string name, std::string field, std::string move,
+                                    std::string button, bool bind) {
+        const auto entry = add("SSSkillGuideBase", std::move(name));
+        const auto title = add("TextBlock", "TEXT_SkillName");
+        const auto glyph = add("RichTextBlock", "GuideButton");
+        if (bind) data(guide).refs[std::move(field)] = entry;
+        data(entry).refs["GuideButtonText"] = glyph;
+        data(title).text["Text"] = std::move(move);
+        data(glyph).text["Text"] = std::move(button);
+        parent(entry, guide);
+        parent(title, entry);
+        parent(glyph, entry);
+        return title;
+    };
+    const auto blast = bind_guide_row("SkillGuide_TypeB_01", "SkillGuideSPSlot1", "Super Kamehameha", "X", true);
+    const auto second_blast = bind_guide_row("SkillGuide_TypeB_02", "SkillGuideSPSlot2", "Dragon Burst", "Y", true);
+    const auto ultimate = bind_guide_row("SkillGuide_TypeC_01", "SkillGuideUltimate", "Super Spirit Bomb", "B", false);
+    data(guide).blueprint = "WBP_Rep_SkillGuideSet_P1_C";
+    data(guide).refs["SkillGuideBStockSlot1"] = row;
+    data(ultimate).shown = false;
+    data(second_blast).shown = false;
+    data(player).flags["IsBattleKeyPressed11"] = true;
+    reader.reset();
+    frame = reader.sample(std::array{guide}, start);
+    check(frame.guide.empty() && !contains(frame.items, "B"), "give the second painted Blast time, without an orphan glyph");
+    data(second_blast).shown = true;
+    frame = reader.sample(std::array{guide}, start + 80ms);
+    check(frame.guide_opened &&
+          frame.guide == "Blasts. Super Kamehameha, X. Dragon Burst, Y. Skills. Instant Transmission, Y",
+          "first speech puts visible Blasts before support");
+    data(ultimate).shown = true;
+    frame = reader.sample(std::array{guide}, start + 160ms);
+    check(!frame.guide_opened && frame.guide == "Ultimate Blast. Super Spirit Bomb, B" &&
+          contains(frame.items, "Super Spirit Bomb, B"), "late attached Ultimate fallback is spoken alone");
+    check(reader.sample(std::array{guide}, start + 240ms).guide.empty(), "unchanged popup does not repeat");
+    data(ultimate).shown = false;
+    (void)reader.sample(std::array{guide}, start + 320ms);
+    data(ultimate).shown = true;
+    check(reader.sample(std::array{guide}, start + 400ms).guide.empty(), "Ultimate flicker does not repeat");
+
+    data(player).flags["IsBattleKeyPressed11"] = false;
+    (void)reader.sample(std::array{main}, start + 500ms);
+    data(player).flags["IsBattleKeyPressed11"] = true;
+    data(second_blast).shown = false;
+    data(ultimate).shown = false;
+    frame = reader.sample(std::array{guide}, start + 600ms);
+    check(frame.guide.empty(), "first partial visible group has a bounded wait");
+    frame = reader.sample(std::array{guide}, start + 950ms);
+    check(frame.guide == "Blasts. Super Kamehameha, X. Skills. Instant Transmission, Y" &&
+          contains(frame.items, "Super Kamehameha, X"), "one visible Blast speaks after the wait");
+    data(blast).shown = false;
+    frame = reader.sample(std::array{guide}, start + 1100ms);
+    check(!contains(frame.items, "Super Kamehameha, X"), "hidden Blast leaves the manual review");
 }

@@ -12,6 +12,7 @@ namespace {
 
 constexpr std::int32_t charge_key = 11; // EKoratBattleKey::Charge
 constexpr auto guide_off_interval = std::chrono::milliseconds{750};
+constexpr auto guide_paint_interval = std::chrono::milliseconds{160};
 
 // These widget inputs and the side remap are pinned to the executable hash in
 // executable.cpp. The setters and HUD update were traced in Ghidra.
@@ -36,11 +37,12 @@ struct VisibleWidgets {
         return object && game.engine().is_a(object, game.engine().find_class(type));
     }
 
-    bool attached(ObjectRef item) const
+    bool attached(ObjectRef item, ObjectRef ancestor = {}) const
     {
         for (unsigned depth = 0; depth < 32 && game.visible(item); ++depth) {
             if (game.number(item, "ColorAndOpacity.A").value_or(1) <= 0.001) return false;
-            if (std::ranges::find(roots, item) != roots.end()) return true;
+            if (item == ancestor) return true;
+            if (std::ranges::find(roots, item) != roots.end()) return !ancestor;
             if (const auto slot = game.object(item, "Slot"); slot) {
                 const auto parent = game.object(slot, "Parent");
                 if (!parent || game.object(slot, "Content") != item) return false;
@@ -417,30 +419,81 @@ std::vector<std::string> visible_text(const VisibleWidgets& screen, ObjectRef ro
     return result;
 }
 
-std::vector<std::string> skill_guide(const VisibleWidgets& screen, ObjectRef guide)
+struct GuideSlot {
+    std::string_view field, name;
+};
+
+constexpr std::array guide_slots{
+    GuideSlot{"SkillGuideSPSlot1", "SkillGuide_TypeB_01"},
+    GuideSlot{"SkillGuideSPSlot2", "SkillGuide_TypeB_02"},
+    GuideSlot{"SkillGuideUltimate", "SkillGuide_TypeC_01"},
+    GuideSlot{"SkillGuideBStockSlot1", "SkillGuide_TypeA_01"},
+    GuideSlot{"SkillGuideBStockSlot2", "SkillGuide_TypeA_02"}
+};
+
+ObjectRef visible_child(const VisibleWidgets& screen, ObjectRef root, std::string_view name)
 {
-    constexpr std::string_view slots[]{
-        "SkillGuideBStockSlot1", "SkillGuideBStockSlot2", "SkillGuideSPSlot1",
-        "SkillGuideSPSlot2", "SkillGuideUltimate"
-    };
-    std::vector<std::string> rows;
-    for (const auto field : slots) {
-        const auto row = widget_field(screen, guide, field, "SSSkillGuideBase");
-        if (!row) continue;
-        const std::array keys{screen.game.object(row, "GuideButtonText"),
-                              screen.game.object(row, "GuideButtonText01")};
-        auto labels = visible_text(screen, row, keys);
-        if (labels.empty()) continue;
-        for (const auto key : keys) {
-            if (screen.on_screen(key)) {
-                auto text = screen.game.text(key, "Text");
-                if (text.empty()) text = screen.game.call_text(key, "GetText");
-                add_once(labels, read_ui_text(text));
-            }
+    auto& game = screen.game;
+    ObjectRef found;
+    auto pending = game.widget_children(root);
+    for (std::size_t index = 0; index < pending.size() && index < 96; ++index) {
+        const auto item = pending[index];
+        if (!game.visible(item)) continue;
+        if (game.engine().name_of(item) == name && screen.on_screen(item)) {
+            if (found && found != item) return {};
+            found = item;
         }
-        add_once(rows, join(labels, ", "));
+        const auto children = game.widget_children(item);
+        pending.insert(pending.end(), children.begin(), children.end());
     }
-    return rows.empty() ? visible_text(screen, guide) : rows;
+    return found;
+}
+
+std::string painted_guide_text(const VisibleWidgets& screen, ObjectRef widget)
+{
+    if (!screen.on_screen(widget)) return {};
+    auto& game = screen.game;
+    if (game.integer(widget, "ColorAndOpacity.ColorUseRule") == 0 &&
+        game.number(widget, "ColorAndOpacity.SpecifiedColor.A").value_or(1) <= 0.001) return {};
+    auto text = game.text(widget, "Text");
+    if (text.empty()) text = game.call_text(widget, "GetText");
+    return read_ui_text(text);
+}
+
+struct GuideRows {
+    std::array<std::string, guide_slots.size()> text;
+    bool has_blasts{};
+};
+
+GuideRows skill_guide(const VisibleWidgets& screen, ObjectRef guide)
+{
+    constexpr std::array<std::string_view, 2> titles{"TEXT_SkillName", "TEXT_SkillName_01"};
+    constexpr std::array<std::string_view, 2> buttons{"GuideButton", "GuideButton_01"};
+    constexpr std::array<std::string_view, 2> button_fields{"GuideButtonText", "GuideButtonText01"};
+    GuideRows rows;
+    for (std::size_t i = 0; i < guide_slots.size(); ++i) {
+        const auto& slot = guide_slots[i];
+        const auto bound = screen.game.object(guide, slot.field);
+        const auto row = screen.is_a(bound, "SSSkillGuideBase") && screen.attached(bound, guide) &&
+                         screen.game.geometry(bound) ? bound : visible_child(screen, guide, slot.name);
+        if (i < 2 && (row || bound)) rows.has_blasts = true;
+        if (!screen.is_a(row, "SSSkillGuideBase")) continue;
+
+        // A slot can present a second style of caption and glyph. Match each
+        // painted caption to the glyph variant in its own row.
+        for (std::size_t variant = 0; variant < titles.size(); ++variant) {
+            auto label = painted_guide_text(screen, visible_child(screen, row, titles[variant]));
+            if (label.empty()) continue;
+            const auto bound_key = screen.game.object(row, button_fields[variant]);
+            auto glyph = screen.attached(bound_key, row) ? painted_guide_text(screen, bound_key) : std::string{};
+            if (glyph.empty())
+                glyph = painted_guide_text(screen, visible_child(screen, row, buttons[variant]));
+            if (glyph.empty()) continue;
+            rows.text[i] = std::move(label) + ", " + glyph;
+            break;
+        }
+    }
+    return rows;
 }
 
 bool battle_menu(const VisibleWidgets& screen)
@@ -484,7 +537,7 @@ BattleReading BattleReader::sample(std::span<const ObjectRef> roots, Clock::time
         guide_pawn_ = {};
         hold_time_.reset();
         guide_hidden_since_.reset();
-        guide_announced_ = false;
+        rearm_guide();
     }
 
     if (context.player_side >= 0) {
@@ -492,14 +545,14 @@ BattleReading BattleReader::sample(std::span<const ObjectRef> roots, Clock::time
         const auto held = game_.call_bool(mine, "IsBattleKeyPressed", charge_key);
         if (guide_pawn_ != mine) {
             guide_pawn_ = mine;
-            guide_announced_ = false;
+            rearm_guide();
             hold_time_.reset();
             guide_hidden_since_.reset();
         }
         if (held == true) {
             const auto hold = game_.call_number(mine, "GetBattleKeyHoldTime", charge_key);
             if (hold && *hold > 0) {
-                if (hold_time_ && *hold + 0.001 < *hold_time_) guide_announced_ = false;
+                if (hold_time_ && *hold + 0.001 < *hold_time_) rearm_guide();
                 hold_time_ = hold;
             }
         }
@@ -511,20 +564,38 @@ BattleReading BattleReader::sample(std::span<const ObjectRef> roots, Clock::time
             // A continuous hold can hide individual rows or rebuild the visible guide.
             // Without positive native hold evidence, a prolonged absence starts a new read.
             if (held != true && guide_hidden_since_ && now - *guide_hidden_since_ >= guide_off_interval)
-                guide_announced_ = false;
+                rearm_guide();
             guide_hidden_since_.reset();
             const auto rows = skill_guide(screen, guide);
-            result.guide_visible = !rows.empty();
-            result.items.insert(result.items.end(), rows.begin(), rows.end());
+            for (const auto& row : rows.text) add_once(result.items, row);
+            result.guide_visible = !result.items.empty();
             // The game can mask the pawn's Charge key while this exact HUD is painted.
-            if ((held != false || charge_popup) && !guide_announced_ && !rows.empty()) {
-                result.guide = "Skill guide. " + join(rows, ". ");
-                guide_announced_ = true;
+            if ((held != false || charge_popup) && result.guide_visible) {
+                if (!guide_first_row_) guide_first_row_ = now;
+                const bool opening = std::ranges::none_of(guide_announced_, [](bool value) { return value; });
+                const bool settling = rows.has_blasts && (rows.text[0].empty() || rows.text[1].empty()) &&
+                                      now - *guide_first_row_ < guide_paint_interval;
+                if (!opening || !settling) {
+                    std::array<std::vector<std::string>, 3> groups;
+                    for (std::size_t i = 0; i < rows.text.size(); ++i) {
+                        if (guide_announced_[i] || rows.text[i].empty()) continue;
+                        const std::size_t group = i < 2 ? 0 : (i == 2 ? 1 : 2);
+                        add_once(groups[group], rows.text[i]);
+                        guide_announced_[i] = true;
+                    }
+                    constexpr std::array headings{"Blasts. ", "Ultimate Blast. ", "Skills. "};
+                    for (std::size_t group = 0; group < groups.size(); ++group) {
+                        if (groups[group].empty()) continue;
+                        if (!result.guide.empty()) result.guide += ". ";
+                        result.guide += headings[group] + join(groups[group], ". ");
+                    }
+                    result.guide_opened = opening && !result.guide.empty();
+                }
             }
         } else {
             if (!guide_hidden_since_) guide_hidden_since_ = now;
             if (held == false) {
-                guide_announced_ = false;
+                rearm_guide();
                 hold_time_.reset();
             }
         }
@@ -609,6 +680,12 @@ BattleReading BattleReader::sample(std::span<const ObjectRef> roots, Clock::time
     return result;
 }
 
+void BattleReader::rearm_guide()
+{
+    guide_announced_.fill(false);
+    guide_first_row_.reset();
+}
+
 void BattleReader::reset()
 {
     hud_ = controller_ = timer_ = guide_pawn_ = {};
@@ -616,7 +693,7 @@ void BattleReader::reset()
     time_.reset();
     hold_time_.reset();
     guide_hidden_since_.reset();
-    guide_announced_ = false;
+    rearm_guide();
     last_result_.clear();
     result_missing_ = 0;
 }

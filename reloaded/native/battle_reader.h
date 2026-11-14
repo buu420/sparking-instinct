@@ -12,6 +12,7 @@ class GameReader;
 struct BattleReading {
     bool active{};
     bool guide_visible{};
+    bool guide_opened{};
     std::string guide;
     std::vector<std::string> items;
     std::vector<std::string> announcements;
@@ -35,13 +36,15 @@ private:
         bool combo_announced{};
     };
 
+    void rearm_guide();
     GameReader& game_;
     ObjectRef hud_{}, controller_{}, timer_{}, guide_pawn_{};
     std::array<Fighter, 2> fighters_{};
     std::optional<int> time_;
     std::optional<double> hold_time_;
     std::optional<Clock::time_point> guide_hidden_since_;
-    bool guide_announced_{};
+    std::optional<Clock::time_point> guide_first_row_;
+    std::array<bool, 5> guide_announced_{};
     std::string last_result_;
     unsigned result_missing_{};
 };
