@@ -1,4 +1,4 @@
-Sparking Instinct for DRAGON BALL: Sparking! ZERO, version 0.2.1 beta
+Sparking Instinct for DRAGON BALL: Sparking! ZERO, version 0.2.2 beta
 
 Buu420 made both movie audio descriptions and maintains this native Reloaded II mod.
 
@@ -22,8 +22,9 @@ another mod or loader, the installer leaves it in place and reports the
 conflict.
 
 Press F6 to read the screen. F7 and F8 review the previous and next item.
-F9 toggles automatic subtitle speech. The saved preference, existing
-narration and hotkeys carry over. F9 still covers automatic subtitles broadly.
+F9 switches between reading all visible dialogue and skipping a line when
+its matching game voice is playing. Text-only story lines still read.
+F6 can review visible dialogue in either mode.
 
 For bug reports, look in SparkingZeroAccess-Reloaded\Logs for
 SparkingZeroAccess.Reloaded.log and the startup log. F3 records HUD text,

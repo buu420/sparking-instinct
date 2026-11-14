@@ -561,6 +561,30 @@ std::optional<std::string> Unreal::text(Address value)
     return string(borrowed);
 }
 
+std::string Unreal::text_key(Address value)
+{
+    if (!readable() || !api_.text_key || !read<Address>(value).value_or(0)) return {};
+    TextKey key{};
+    static_assert(offsetof(TextKey, present) == 16 && sizeof(TextKey) == 24);
+    TextKey* result{};
+    if (!guarded_result(api_.text_key, result, &key, value) || result != &key || key.present != 1)
+        return {};
+    const auto cleanup = [this](TextKey* item) { release(item->value.data); };
+    const std::unique_ptr<TextKey, decltype(cleanup)> storage(&key, cleanup);
+    return string(reinterpret_cast<Address>(&key.value)).value_or("");
+}
+
+ObjectRef Unreal::voice_component(ObjectRef manager, std::uint32_t handle)
+{
+    if (!handle || !readable() || !is_a(manager, find_class("SSAtomComponentManager"))) return {};
+    std::array<std::int32_t, 2> result{};
+    decltype(&result) returned{};
+    if (!guarded_result(api_.voice_component, returned, manager.address, &result, &handle) ||
+        returned != &result) return {};
+    const auto component = weak(result[0], result[1]);
+    return is_a(component, find_class("AtomComponent")) ? component : ObjectRef{};
+}
+
 std::optional<std::string> Unreal::string(Address value) const
 {
     const auto array = read<ArrayHeader>(value);

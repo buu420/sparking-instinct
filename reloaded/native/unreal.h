@@ -25,6 +25,11 @@ struct ArrayHeader {
     std::int32_t capacity{};
 };
 
+struct TextKey {
+    ArrayHeader value{};
+    std::uint8_t present{};
+};
+
 struct ObjectHeader {
     Address vtable{};
     std::uint32_t flags{};
@@ -78,6 +83,9 @@ struct EngineApi {
     std::int32_t (*serial)(Address array, std::int32_t index){};
     void (*process_event)(Address object, Address function, void* params){};
     Address (*text_string)(Address text){};
+    TextKey* (*text_key)(TextKey* result, Address text){};
+    std::array<std::int32_t, 2>* (*voice_component)(Address voice_manager,
+        std::array<std::int32_t, 2>* result, const std::uint32_t* handle){};
     void (*destroy_text)(Address property, Address storage){};
     void (*free)(Address allocation){};
 };
@@ -130,6 +138,9 @@ public:
     bool can_destroy_text(const Field& field) const;
     void destroy_text(const Field& field, Address value) noexcept;
     std::optional<std::string> text(Address value);
+    std::string text_key(Address value);
+    ObjectRef voice_component(ObjectRef manager, std::uint32_t handle);
+    bool can_inspect_voice() const { return api_.text_key && api_.voice_component; }
     std::optional<std::string> string(Address value) const;
     void release(Address allocation) noexcept;
     bool is_code(Address address) const;

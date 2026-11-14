@@ -21,6 +21,7 @@ public:
     std::optional<std::int64_t> integer(ObjectRef owner, std::string_view path);
     std::optional<bool> boolean(ObjectRef owner, std::string_view path);
     std::string text(ObjectRef owner, std::string_view path);
+    std::string text_key(ObjectRef text_widget);
     std::vector<ObjectRef> objects(ObjectRef owner, std::string_view path, std::size_t limit);
     std::optional<double> array_number(ObjectRef owner, std::string_view path,
                                        std::size_t index, std::string_view member);

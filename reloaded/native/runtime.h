@@ -41,6 +41,7 @@ private:
     BattleReader battle_;
     MovieReader movie_;
     ReadingState reading_;
+    SubtitleReader subtitle_reader_;
     std::filesystem::path preference_;
     Report report_;
     ScreenReading screen_{};

@@ -2,7 +2,7 @@
   "gameId": "dragon-ball-sparking-zero",
   "displayName": "DRAGON BALL: Sparking! ZERO",
   "modName": "Sparking Instinct (Beta)",
-  "description": "Sparking Instinct reads supported menus, character selection, training, controls, battle gauges, and story screens. Buu420 made the audio descriptions for the main opening and post-tutorial movie.\n\nRequires Windows x64 and Steam build 24953175 (game version 3022.021.003.012.015). The ZIP includes the native reader, narration, Reloaded II, and Prism. Amethyst can install the .NET Desktop Runtime separately if needed. Close the game before installing, updating, or uninstalling. Start the game from Steam or its desktop shortcut.\n\nF6 reads the screen. F7 and F8 review items. F9 toggles automatic subtitle speech. Visible tutorial instructions repeat every 20 seconds.",
+  "description": "Sparking Instinct reads supported menus, character selection, training, controls, battle gauges, and story screens. Buu420 made the audio descriptions for the main opening and post-tutorial movie.\n\nRequires Windows x64 and Steam build 24953175 (game version 3022.021.003.012.015). The ZIP includes the native reader, narration, Reloaded II, and Prism. Amethyst setup reuses x64 .NET 9 Desktop Runtime 9.0.8 or a later .NET 9 patch. If needed, setup offers the Microsoft installer. Close the game before installing, updating, or uninstalling. Start the game from Steam or its desktop shortcut.\n\nF6 reads the screen. F7 and F8 review items. F9 switches between reading all visible dialogue and skipping verified voiced lines. Text-only story dialogue still reads. Visible tutorial instructions repeat every 20 seconds.",
   "steamAppId": "1790600",
   "exeName": "SparkingZERO.exe",
   "probeRules": [

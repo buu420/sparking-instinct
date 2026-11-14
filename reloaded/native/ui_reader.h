@@ -1,6 +1,6 @@
 #pragma once
 
-#include "unreal.h"
+#include "subtitle_reader.h"
 
 #include <span>
 
@@ -11,7 +11,10 @@ class GameReader;
 struct ScreenReading {
     ObjectRef root{}, focus{};
     std::vector<std::string> items;
-    std::string announcement, tutorial, subtitle, battle_help;
+    std::vector<std::string> visible_surfaces;
+    std::string announcement, tutorial, battle_help;
+    std::vector<SubtitleLine> subtitles;
+    std::string control_details;
 };
 
 std::string read_ui_text(std::string_view rendered_text);
@@ -25,7 +28,7 @@ bool matches_training_reset_prompt(std::string_view painted);
 class UiReader {
 public:
     explicit UiReader(GameReader& game) : game_(game) {}
-    ScreenReading sample(std::span<const ObjectRef> roots, bool cinematic = false);
+    ScreenReading sample(std::span<const ObjectRef> roots, bool cinematic = false, bool diagnostics = false);
     void reset();
 
 private:

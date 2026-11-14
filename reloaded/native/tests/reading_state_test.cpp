@@ -39,13 +39,7 @@ int main()
     check(!state.tutorial_due("Charge your ki", start + 21s), "Tutorial did not reset the repeat deadline");
     check(state.tutorial_due("Use the transformation menu", start + 21s), "A new instruction was missed");
 
-    check(state.subtitle_changed("Stay focused!"), "Initial subtitle was missed");
-    check(!state.subtitle_changed("Stay focused!"), "An unchanged subtitle repeated");
-    check(!state.subtitle_changed(""), "An empty line was announced");
-    check(!state.subtitle_changed("Stay focused!"), "One empty frame repeated the subtitle");
-    check(state.subtitle_changed("Here we go!"), "A new subtitle was missed");
     state.reset();
-    check(state.subtitle_changed("Here we go!"), "A map transition retained stale subtitle state");
     check(!state.tutorial_due("", start + 41s), "A map transition retained a tutorial reminder");
 
     const std::array two_bars{std::string("Your ki, 2 bars")};

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.23)
-project(SparkingInstinct VERSION 0.2.1 LANGUAGES C CXX)
+project(SparkingInstinct VERSION 0.2.2 LANGUAGES C CXX)
 
 if(NOT MSVC OR NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     message(FATAL_ERROR "Build SparkingZeroAccess with MSVC for Windows x64.")
@@ -26,7 +26,8 @@ target_include_directories(sparking_engine PUBLIC native)
 target_compile_options(sparking_engine PRIVATE /W4)
 
 add_library(sparking_runtime STATIC native/runtime.cpp native/reading_state.cpp
-    native/ui_reader.cpp native/battle_reader.cpp native/movie_reader.cpp native/movie_audio.cpp)
+    native/ui_reader.cpp native/battle_reader.cpp native/movie_reader.cpp native/movie_audio.cpp
+    native/subtitle_reader.cpp)
 target_include_directories(sparking_runtime PUBLIC native PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(sparking_runtime PRIVATE sparking_engine sparking_prism user32 xaudio2 ole32)
 target_compile_options(sparking_runtime PRIVATE /W4)
@@ -69,6 +70,19 @@ if(BUILD_TESTING)
     add_executable(sparking_reading_state_test native/tests/reading_state_test.cpp native/reading_state.cpp)
     target_include_directories(sparking_reading_state_test PRIVATE native)
     add_test(NAME sparking_reading_state COMMAND sparking_reading_state_test)
+
+    add_executable(sparking_runtime_test native/tests/runtime_test.cpp native/runtime.cpp native/reading_state.cpp)
+    target_include_directories(sparking_runtime_test PRIVATE native)
+    target_link_libraries(sparking_runtime_test PRIVATE user32)
+    add_test(NAME sparking_runtime COMMAND sparking_runtime_test)
+
+    add_executable(sparking_subtitle_reader_test native/tests/subtitle_reader_test.cpp)
+    target_link_libraries(sparking_subtitle_reader_test PRIVATE sparking_runtime sparking_engine)
+    add_test(NAME sparking_subtitle_reader COMMAND sparking_subtitle_reader_test)
+
+    add_executable(sparking_subtitle_voice_test native/tests/subtitle_voice_test.cpp native/subtitle_reader.cpp)
+    target_include_directories(sparking_subtitle_voice_test PRIVATE native)
+    add_test(NAME sparking_subtitle_voice COMMAND sparking_subtitle_voice_test)
 
     add_executable(sparking_ui_reader_test native/tests/ui_reader_test.cpp)
     target_link_libraries(sparking_ui_reader_test PRIVATE sparking_runtime)

@@ -202,6 +202,14 @@ void append(std::string& result, std::string_view current)
 struct ViewRect {
     double l{}, t{}, r{}, b{};
 };
+
+bool reading_order(ViewRect left, ViewRect right)
+{
+    const auto left_line = std::floor(left.t / 12.0);
+    const auto right_line = std::floor(right.t / 12.0);
+    return left_line < right_line || (left_line == right_line && left.l < right.l);
+}
+
 using NodeIndex = std::size_t;
 constexpr std::size_t none = std::numeric_limits<std::size_t>::max();
 constexpr std::size_t maximum_roots = 36;
@@ -282,6 +290,16 @@ bool character_grid(std::string_view type)
            type.starts_with("WBP_GRP_BS_ChList_TeamList_");
 }
 
+bool episode_roster(std::string_view type)
+{
+    return type.starts_with("WBP_GRP_AI_CharacterSelect");
+}
+
+bool episode_chart(std::string_view type)
+{
+    return type == "WBP_GRP_AI_ChartTitle_C";
+}
+
 bool stage_list(std::string_view type)
 {
     return type.starts_with("WBP_GRP_BS_StageList_");
@@ -305,14 +323,47 @@ bool hit_target(std::string_view type)
 
 bool split_focus_surface(std::string_view type)
 {
-    return setup_surface(type) || type == "WBP_GRP_CSG_Top_00_C";
+    return setup_surface(type) || episode_roster(type) ||
+           one_of(type, {"WBP_GRP_CSG_Top_00_C", "WBP_TBL_Menu_C", "WBP_TBL_Edit_C",
+                         "WBP_MainMenuMatchingConditionSettings_C"}) ||
+           type.starts_with("WBP_GRP_HUN_") || type.starts_with("WBP_GRP_Mission_") ||
+           type.starts_with("WBP_GRP_SH_") || type.starts_with("WBP_GRP_Gallery_") ||
+           type.starts_with("WBP_OBJ_Gallery_MyData_") || type.starts_with("WBP_GRP_BS_TA_") ||
+           type.starts_with("WBP_GRP_LB_TA_");
+}
+
+bool help_panel(std::string_view type)
+{
+    return one_of(type, {"WBP_GRP_DB_HelpWindow_C", "WBP_GRP_DB_HelpWindow_TIPS_C",
+                         "WBP_GRP_TA_HelpDialog_C", "WBP_GRP_BS_TA_Dialog_0_C",
+                         "WBP_GRP_CSG_Practice_base_C", "WBP_GRP_HUD_CSG_Menu_Base_C",
+                         "WBP_GRP_HUD_CSG_Menu_Base_A_C"});
+}
+
+bool raised_dialog(std::string_view type)
+{
+    return root_is_dialog(type) || one_of(type, {"WBP_GRP_DB_HelpWindow_C",
+        "WBP_GRP_DB_HelpWindow_TIPS_C", "WBP_GRP_TA_HelpDialog_C", "WBP_GRP_BS_TA_Dialog_0_C"});
+}
+
+bool training_menu(std::string_view type)
+{
+    return type.starts_with("WBP_GRP_CSG_Practice_") ||
+           type.starts_with("WBP_GRP_HUD_CSG_Menu_");
 }
 
 bool episode_screen(std::string_view type)
 {
-    return type.starts_with("WBP_GRP_AI_CharacterSelect") || type.starts_with("WBP_GRP_AI_Map_") ||
+    return episode_roster(type) || type.starts_with("WBP_GRP_AI_Map_") ||
            type.starts_with("WBP_GRP_AI_Chart") || type == "WBP_GRP_AI_Outline_C" ||
            type.starts_with("WBP_GRP_AI_DecisionBranch");
+}
+
+bool overview_surface(std::string_view type)
+{
+    return episode_screen(type) || split_focus_surface(type) ||
+           training_menu(type) || help_panel(type) ||
+           one_of(type, {"WBP_CMN_GuideMessage_C", "WBP_TBL_Entry_C", "WBP_TBL_Advanced_C"});
 }
 
 struct Node {
@@ -321,7 +372,7 @@ struct Node {
     std::string name, type, text;
     std::optional<ViewRect> painted;
     ViewRect clip{};
-    bool keyboard{}, controller{}, training_reset_prompt{};
+    bool visible{}, keyboard{}, controller{}, training_reset_prompt{};
 };
 
 class WidgetTree {
@@ -341,7 +392,6 @@ public:
         };
         std::vector<Root> candidates;
         for (const auto root : roots) {
-            if (candidates.size() >= maximum_roots) break;
             if (!game_.visible(root) || !game_.call_bool(root, "IsInViewport").value_or(false)) continue;
             auto type = game_.engine().class_name(root);
             if (cinematic && !root_is_cinematic(type)) continue;
@@ -353,17 +403,20 @@ public:
         // Keep the focused surface and time-sensitive caption overlays ahead of large decorative trees.
         std::stable_sort(candidates.begin(), candidates.end(), [](const Root& a, const Root& b) {
             const auto priority = [](const Root& r) {
-                if (r.focus_path || root_is_dialog(r.type) || split_focus_surface(r.type) || controls_screen(r.type)) return 0;
+                if (raised_dialog(r.type) || r.focus_path || setup_surface(r.type) || controls_screen(r.type)) return 0;
                 if (tutorial_root(r.type) || root_is_cinematic(r.type) || operation_guide(r.type) ||
-                    r.type == "WBP_MainMenu_Base_TextSub_C" || r.type == "WBP_GRP_BS_StageName_DP_C") return 1;
+                    overview_surface(r.type) || r.type == "WBP_MainMenu_Base_TextSub_C") return 1;
                 return 2;
             };
             return priority(a) < priority(b);
         });
+        std::size_t captured = 0;
         for (const auto& root : candidates) {
+            if (captured >= maximum_roots) break;
             if (attempts_ >= maximum_widgets) break;
             const auto extent = rect(game_.geometry(root.object));
             if (!extent) continue;
+            ++captured;
             root_attempts_ = 0;
             visit(root.object, none, nodes_.size(), *extent, 0, root.focus_path,
                   root.keyboard, split_focus_surface(root.type));
@@ -387,6 +440,11 @@ public:
         return none;
     }
 
+    bool within(NodeIndex index, NodeIndex scope) const
+    {
+        return index >= scope && index < nodes_[scope].end;
+    }
+
     std::optional<ViewRect> painted(NodeIndex index) const
     {
         const auto& node = nodes_[index];
@@ -406,6 +464,7 @@ private:
         if (!object || attached_.contains(object.address)) return;
         auto type = game_.engine().class_name(object);
         if (type.empty()) return;
+        probe_hit_targets |= split_focus_surface(type) || training_menu(type);
         const bool proxy = probe_hit_targets && parent != none && hit_target(type);
         const bool visible = game_.visible(object) && (!type.starts_with("WBP_") ||
             game_.number(object, "ColorAndOpacity.A").value_or(1) > 0.001);
@@ -418,7 +477,8 @@ private:
         }
         // Slate clips scroll containers and any widget with an explicit clipping zone.
         const auto clipping = game_.integer(object, "Clipping").value_or(0);
-        if (type.ends_with("ScrollBox") || (clipping >= 1 && clipping <= 3)) {
+        if (type.ends_with("ScrollBox") || one_of(type, {"ListView", "TileView", "TreeView"}) ||
+            (clipping >= 1 && clipping <= 3)) {
             const auto extent = rect(game_.geometry(object));
             const auto clipped = extent ? intersection(clip, *extent) : std::nullopt;
             if (!clipped) return;
@@ -436,7 +496,8 @@ private:
         node.name = game_.engine().name_of(object);
         node.type = std::move(type);
         node.clip = clip;
-        if ((focus_path || proxy) && !is_image) {
+        node.visible = visible;
+        if ((focus_path || proxy || raised_dialog(node.type)) && !is_image) {
             node.keyboard = parent == none ? root_keyboard :
                 game_.call_bool(object, "HasKeyboardFocus").value_or(false);
             node.controller = node.keyboard || game_.call_bool(object, "HasAnyUserFocus").value_or(false);
@@ -462,7 +523,7 @@ private:
         attached_.emplace(object.address, index);
         nodes_.push_back(std::move(node));
         if (visible && !is_text && !is_image) {
-            const bool child_focus = focus_path &&
+            const bool child_focus = (focus_path || raised_dialog(nodes_[index].type) || overview_surface(nodes_[index].type)) &&
                 (parent == none || game_.call_bool(object, "HasFocusedDescendants").value_or(false));
             for (const auto child : game_.widget_children(object)) {
                 if (attempts_ >= maximum_widgets || root_attempts_ >= maximum_widgets_per_root) break;
@@ -500,6 +561,69 @@ std::optional<NodeIndex> unique_widget(const WidgetTree& tree, NodeIndex scope, 
         found = i;
     }
     return found;
+}
+
+template<class Predicate>
+NodeIndex unique_surface(const WidgetTree& tree, Predicate match)
+{
+    NodeIndex found = none;
+    for (NodeIndex i = 0; i < tree.nodes().size(); ++i) {
+        if (!match(tree[i]) || !tree.painted(i)) continue;
+        if (found != none) return none;
+        found = i;
+    }
+    return found;
+}
+
+std::string visible_lines(const WidgetTree& tree, NodeIndex scope,
+                          const std::unordered_set<NodeIndex>& consumed, std::string_view omit = {})
+{
+    std::string result;
+    std::unordered_set<std::string_view> seen;
+    std::vector<NodeIndex> ordered;
+    for (auto i = scope; i < tree[scope].end; ++i) {
+        const auto& node = tree[i];
+        if (node.painted && !node.text.empty() && node.text != omit && !consumed.contains(i))
+            ordered.push_back(i);
+    }
+    std::stable_sort(ordered.begin(), ordered.end(), [&](auto a, auto b) {
+        return reading_order(*tree[a].painted, *tree[b].painted);
+    });
+    for (auto i : ordered) {
+        if (result.size() >= 4000) break;
+        if (seen.insert(tree[i].text).second) append(result, tree[i].text);
+    }
+    return result;
+}
+
+std::string linked_text(GameReader& game, const WidgetTree& tree, NodeIndex scope, std::string_view member)
+{
+    const auto text = tree.locate(game.object(tree[scope].object, member));
+    return text && tree.within(*text, scope) ? tree[*text].text : std::string{};
+}
+
+bool setting_row(GameReader& game, const Node& node)
+{
+    if (!node.type.starts_with("WBP_") && !node.type.starts_with("SS")) return false;
+    if (!game.object(node.object, "Label")) return false;
+    for (const auto type : {"SSPropertySettingsButton", "SSMainMenuSettingsPropertyButton",
+                            "SSTournamentRuleEditorButton"}) {
+        if (game.engine().is_a(node.object, game.engine().find_class(type))) return true;
+    }
+    return false;
+}
+
+bool active_menu(GameReader& game, const Node& node)
+{
+    constexpr auto state = "bIsActive";
+    constexpr auto input = "bIsDisableKeyInput";
+    return game.boolean(node.object, state) == true && game.boolean(node.object, input) == false;
+}
+
+bool option_row(GameReader& game, const Node& node, ObjectRef side_changer)
+{
+    return setting_row(game, node) ||
+           (side_changer && node.type.starts_with("WBP_") && game.engine().is_a(node.object, side_changer));
 }
 
 std::string binding(const WidgetTree& tree, NodeIndex scope)
@@ -581,9 +705,12 @@ std::string portrait_label(GameReader& game, const WidgetTree& tree, NodeIndex s
 
 std::string option_label(GameReader& game, const WidgetTree& tree, NodeIndex scope)
 {
-    auto title = named_text(tree, scope, "Title");
+    auto title = linked_text(game, tree, scope, "Label");
+    if (title.empty()) title = named_text(tree, scope, "Title");
     if (title.empty()) title = named_text(tree, scope, "Text_Title");
-    auto value = named_text(tree, scope, "caption");
+    auto value = linked_text(game, tree, scope, "Description");
+    if (value.empty()) value = linked_text(game, tree, scope, "Caption");
+    if (value.empty()) value = named_text(tree, scope, "caption");
     if (value.empty()) {
         const auto image = unique_widget(tree, scope, [](const Node& node) {
             return node.name == "IMG_Lang" && node.painted;
@@ -598,11 +725,22 @@ std::string option_label(GameReader& game, const WidgetTree& tree, NodeIndex sco
 
 std::string label(GameReader& game, const WidgetTree& tree, NodeIndex scope, ObjectRef side_changer)
 {
-    if (side_changer && game.engine().is_a(tree[scope].object, side_changer))
+    const auto& row = tree[scope];
+    if (option_row(game, row, side_changer))
         return option_label(game, tree, scope);
 
+    if (row.type.starts_with("WBP_OBJ_SH_ItemIcon_")) {
+        auto item = named_text(tree, scope, "Txt_ItemName");
+        if (item.empty()) return {};
+        append(item, named_text(tree, scope, "TXT_PriceNum_0"));
+        return item;
+    }
+    if (auto text = linked_text(game, tree, scope, "Caption"); !text.empty()) return text;
     for (const auto name : {"caption", "Title", "Text_Title", "Text_Name", "Text_CharaName",
-                            "TXT_Title", "TXT_Name", "Text_StageName", "Text_BattleName"}) {
+                            "TXT_Title", "TXT_Name", "Text_StageName", "Text_BattleName",
+                            "Text_MissionTitle_Line00", "Txt_ItemName", "Text_ItemName",
+                            "Text_MissionTitle", "TXT_MissionTitle", "Text_MovieName",
+                            "Text_MovieTitle", "TXT_MovieName", "Text_BGMName", "Text_ReplayTitle"}) {
         if (auto value = named_text(tree, scope, name); !value.empty()) return value;
     }
 
@@ -616,60 +754,64 @@ std::string label(GameReader& game, const WidgetTree& tree, NodeIndex scope, Obj
 
 
 
-std::optional<NodeIndex> related_hit_label(GameReader& game, const WidgetTree& tree,
-                                           NodeIndex scope)
+std::optional<NodeIndex> related_hit_label(GameReader& game, const WidgetTree& tree, NodeIndex scope)
 {
     const auto& hit = tree[scope];
-    const auto& root = tree[hit.root];
+    if (!hit_target(hit.type) && !hit.type.starts_with("WBP_")) return {};
+    const auto surface = tree.ancestor(scope, [](const Node& node) {
+        return split_focus_surface(node.type) || training_menu(node.type);
+    });
     const auto remote = tree.locate(game.object(hit.object, "RemoteButton"));
-    if (remote && tree[*remote].root == hit.root) return remote;
+    if (remote && *remote != scope && !tree.within(scope, *remote)) return remote;
+    if (surface == none || !hit_target(hit.type)) return {};
 
-    return unique_widget(tree, hit.root, [&](const Node& visual) {
-        return ui_detail::matches_menu_visual(root.type, hit.name, visual.name);
+    return unique_widget(tree, surface, [&](const Node& visual) {
+        return ui_detail::matches_menu_visual(tree[surface].type, hit.name, visual.name);
     });
 }
 
 bool focus_has_visual(GameReader& game, const WidgetTree& tree, NodeIndex index)
 {
     const auto& node = tree[index];
-    if (!hit_target(node.type) || !split_focus_surface(tree[node.root].type)) return tree.painted(index).has_value();
-    const auto visual = related_hit_label(game, tree, index);
-    if (!visual) return false;
-    if (tree.painted(*visual)) return true;
-    for (auto i = *visual + 1; i < tree[*visual].end; ++i)
-        if (!tree[i].text.empty() || (tree[i].name == "IMG_Face_Main" && tree[i].painted)) return true;
-    return false;
+    if (hit_target(node.type)) {
+        if (const auto target = related_hit_label(game, tree, index)) {
+            if (tree.painted(*target)) return true;
+            for (auto i = *target + 1; i < tree[*target].end; ++i)
+                if (!tree[i].text.empty() || (tree[i].name == "IMG_Face_Main" && tree[i].painted)) return true;
+        }
+    }
+    return node.visible && tree.painted(index).has_value();
 }
 
-NodeIndex focused_widget(GameReader& game, const WidgetTree& tree)
+NodeIndex focused_widget(GameReader& game, const WidgetTree& tree, NodeIndex modal)
 {
     NodeIndex chosen = none;
     bool ambiguous = false;
     for (NodeIndex i = 0; i < tree.nodes().size(); ++i) {
         const auto& node = tree[i];
+        if (modal != none && !tree.within(i, modal)) continue;
         if ((!node.keyboard && !node.controller) || !focus_has_visual(game, tree, i)) continue;
         if (chosen == none || (node.keyboard && !tree[chosen].keyboard)) {
             chosen = i;
             ambiguous = false;
         } else if (node.keyboard == tree[chosen].keyboard) {
-            if (i < tree[chosen].end) chosen = i;
+            if (tree.within(i, chosen)) chosen = i;
             else ambiguous = true;
         }
     }
     if (ambiguous || chosen != none) return ambiguous ? none : chosen;
 
     for (NodeIndex i = 0; i < tree.nodes().size(); ++i) {
-        const auto& root = tree[i];
-        if (root.parent != none) continue;
-        if (root_is_dialog(root.type)) return none;
-        if (!split_focus_surface(root.type) || stage_list(root.type) ||
-            game.boolean(root.object, "bIsActive") != true ||
-            game.boolean(root.object, "bIsDisableKeyInput") != false) continue;
-        const auto target = tree.locate(game.object(root.object, root.type == "WBP_GRP_CSG_Top_00_C" ?
-                                                    "BuiltInMenu.LastFocusedWidget" : "LastFocusedWidget"));
-        if (!target || tree[*target].root != i || !hit_target(tree[*target].type) ||
+        const auto& menu = tree[i];
+        if (modal != none && !tree.within(i, modal)) continue;
+        if ((!overview_surface(menu.type) && !controls_screen(menu.type) && !raised_dialog(menu.type)) ||
+            stage_list(menu.type) || !active_menu(game, menu)) continue;
+        const auto direct = game.object(menu.object, "LastFocusedWidget");
+        const auto built_in = game.object(menu.object, "BuiltInMenu.LastFocusedWidget");
+        const auto target = tree.locate(built_in ? built_in : direct);
+        if (!target || *target == i || !tree.within(*target, i) ||
             !focus_has_visual(game, tree, *target)) continue;
-        if (chosen != none) return none;
+        if (chosen != none && chosen != *target) return none;
         chosen = *target;
     }
     return chosen;
@@ -679,8 +821,10 @@ std::string focused_label(GameReader& game, const WidgetTree& tree, NodeIndex fo
                           ObjectRef side_changer)
 {
     const auto& initial = tree[focused];
-    if (!initial.text.empty()) return initial.text;
     if (initial.type == "WBP_MainMenu_Base_C") return named_text(tree, focused, "TXT_GuideMessage");
+    const auto setting = tree.ancestor(focused, [&](const Node& node) { return option_row(game, node, side_changer); });
+    if (setting != none) return option_label(game, tree, setting);
+    if (!initial.text.empty()) return initial.text;
     for (auto scope = focused; scope != none; scope = tree[scope].parent) {
         const auto& node = tree[scope];
         if (node.type.starts_with("WBP_OBJ_BS_CharaIcon_")) return portrait_label(game, tree, scope);
@@ -691,7 +835,14 @@ std::string focused_label(GameReader& game, const WidgetTree& tree, NodeIndex fo
         }
 
         // Keep an unlabeled hit target local. A broad ancestor label can belong to another button.
-        if (hit_target(node.type)) return {};
+        if (hit_target(node.type)) {
+            if (auto own = label(game, tree, scope, side_changer); !own.empty()) return own;
+            for (auto parent = node.parent; parent != none; parent = tree[parent].parent) {
+                if (tree[parent].type.starts_with("WBP_OBJ_"))
+                    return label(game, tree, parent, side_changer);
+            }
+            return {};
+        }
         if (node.type.starts_with("WBP_") || node.type == "Button") {
             if (scope == initial.root && !episode_screen(node.type) && !root_is_dialog(node.type) &&
                 !stage_list(node.type)) return {};
@@ -709,32 +860,25 @@ bool passive_item_surface(std::string_view type)
            root_is_cinematic(type) || type.starts_with("WBP_CMN_Waiting");
 }
 
-std::string episode_context(const WidgetTree& tree, NodeIndex root, bool choice_dialog)
+std::string episode_chart_text(const WidgetTree& tree, NodeIndex chart)
 {
-    std::string context;
-    const bool map = tree[root].type.starts_with("WBP_GRP_AI_Map_");
-    for (NodeIndex i = 0; i < tree.nodes().size(); ++i) {
-        const auto& node = tree[i];
-        if (node.text.empty()) continue;
-        const auto& surface = tree[node.root].type;
-        const bool chart = map && (surface.starts_with("WBP_GRP_AI_Chart") ||
-                                   surface == "WBP_GRP_AI_Outline_C");
-        const bool choice_text = choice_dialog && node.root == root &&
-            one_of(node.name, {"Title", "Text_Title", "Text_Explain"});
-        if (chart || choice_text) append(context, node.text);
-        if (context.size() >= 1300) break;
-    }
-    return context;
+    if (named_text(tree, chart, "Text_ScenarioTitle_0").empty()) return {};
+    std::string result;
+    for (const auto title : {"Text_EventTitle", "Text_Chapter", "Text_ScenarioTitle_1",
+                            "Text_ScenarioTitle_0", "TXT_Orb"})
+        append(result, named_text(tree, chart, title));
+    return result;
 }
 
 void collect_subtitle(GameReader& game, const WidgetTree& tree, ScreenReading& result,
                       std::unordered_set<NodeIndex>& consumed, NodeIndex modal_root)
 {
     const auto text_ui = game.engine().find_class("SSMenuTextUi");
+    const auto event_ui = game.engine().find_class("SSMenuTextWithChoiceUi");
     const auto captions = game.engine().find_class("SSWCTSubtitle");
     for (NodeIndex i = 0; i < tree.nodes().size(); ++i) {
         const auto& node = tree[i];
-        if (modal_root != none && node.root != modal_root) continue;
+        if (modal_root != none && !tree.within(i, modal_root)) continue;
         if (!node.type.starts_with("WBP_")) continue;
         const bool dialog = text_ui && game.engine().is_a(node.object, text_ui);
         const bool duration_caption = captions && game.engine().is_a(node.object, captions);
@@ -752,7 +896,12 @@ void collect_subtitle(GameReader& game, const WidgetTree& tree, ScreenReading& r
             }
         }
         append(line, tree[*text].text);
-        if (result.subtitle.empty()) result.subtitle = std::move(line);
+        const auto event = dialog ? tree.ancestor(i, [&](const Node& parent) {
+            return parent.type.starts_with("WBP_GRP_Common_EventText") && event_ui &&
+                   game.engine().is_a(parent.object, event_ui);
+        }) : none;
+        result.subtitles.push_back({node.object, tree[*text].object,
+                                    event == none ? ObjectRef{} : tree[event].object, std::move(line)});
     }
 }
 
@@ -761,7 +910,7 @@ void collect_tutorial(GameReader& game, const WidgetTree& tree, ScreenReading& r
 {
     for (NodeIndex i = 0; i < tree.nodes().size(); ++i) {
         const auto& node = tree[i];
-        if (modal_root != none && node.root != modal_root) continue;
+        if (modal_root != none && !tree.within(i, modal_root)) continue;
         if (!tutorial_root(tree[node.root].type)) continue;
         if (node.type == "WBP_OBJ_TRR_HUD_TipText_C") {
             auto caption = named_text(tree, i, "caption");
@@ -918,6 +1067,87 @@ void consume_text(const WidgetTree& tree, NodeIndex scope, std::unordered_set<No
         if (!tree[i].text.empty() && one_of(tree[i].name, names)) consumed.insert(i);
 }
 
+NodeIndex modal_surface(GameReader& game, const WidgetTree& tree)
+{
+    const auto candidate = [&](const Node& node) {
+        if (!raised_dialog(node.type) || !node.visible) return false;
+        const auto start = static_cast<NodeIndex>(&node - tree.nodes().data());
+        return std::ranges::any_of(tree.nodes().subspan(start, node.end - start),
+                                  [](const Node& item) { return !item.text.empty(); });
+    };
+    const auto focused = unique_surface(tree, [&](const Node& node) {
+        return candidate(node) && (node.keyboard || node.controller ||
+            game.call_bool(node.object, "HasFocusedDescendants").value_or(false));
+    });
+    if (focused != none) return focused;
+    return unique_surface(tree, candidate);
+}
+
+NodeIndex associated_panel(GameReader& game, const WidgetTree& tree, NodeIndex member,
+                           std::string_view controller_class, std::string_view member_property,
+                           std::string_view panel_property)
+{
+    constexpr std::size_t limit = 4;
+    const auto owners = game.engine().objects(controller_class, {}, limit + 1, 0, 0, false);
+    if (owners.size() > limit) return none;
+    NodeIndex result = none;
+    for (const auto owner : owners) {
+        if (game.object(owner, member_property) != tree[member].object) continue;
+        const auto panel = tree.locate(game.object(owner, panel_property));
+        if (!panel || !tree.painted(*panel)) continue;
+        if (result != none) return none;
+        result = *panel;
+    }
+    return result;
+}
+
+NodeIndex tournament_viewer(GameReader& game, const WidgetTree& tree, NodeIndex selection)
+{
+    const auto list = tree.ancestor(selection, [](const Node& node) { return node.type == "WBP_TBL_Menu_C"; });
+    return list == none ? none : associated_panel(game, tree, list, "SSTournamentSelectController",
+                                                  "MenuListWidget", "RuleViewerWidget");
+}
+
+std::string tournament_rules(GameReader& game, const WidgetTree& tree, NodeIndex viewer,
+                             const std::unordered_set<NodeIndex>& consumed)
+{
+    std::vector<std::pair<ViewRect, std::string>> rows;
+    for (auto i = viewer + 1; i < tree[viewer].end; ++i) {
+        if (tree[i].type != "WBP_OBJ_TBL_Edit_ListItem_C") continue;
+        const auto position = tree.painted(i);
+        auto text = option_label(game, tree, i);
+        if (position && !text.empty()) rows.emplace_back(*position, std::move(text));
+    }
+    std::ranges::sort(rows, [](const auto& a, const auto& b) {
+        return reading_order(a.first, b.first);
+    });
+    std::string rules;
+    for (const auto& row : rows) append(rules, row.second);
+    return rules.empty() ? visible_lines(tree, viewer, consumed) : rules;
+}
+
+NodeIndex other_menu_panel(GameReader& game, const WidgetTree& tree, NodeIndex surface)
+{
+    const auto& type = tree[surface].type;
+    if (type == "WBP_GRP_HUN_SceneList_C")
+        return associated_panel(game, tree, surface, "SSModeHUNCotroller", "HUNBattleListUi", "HUNBattleDetailUi");
+    if (type.starts_with("WBP_GRP_Mission_"))
+        return unique_surface(tree, [](const Node& node) { return node.type == "WBP_GRP_Mission_Detail_C"; });
+    if (type.starts_with("WBP_GRP_SH_"))
+        return unique_surface(tree, [](const Node& node) { return node.type == "WBP_GRP_SH_Detail_00_C"; });
+    if (type.starts_with("WBP_OBJ_Gallery_MyData_"))
+        return unique_surface(tree, [](const Node& node) {
+            return one_of(node.type, {"WBP_OBJ_Gallery_MyData_Info_Panel_C",
+                "WBP_OBJ_Gallery_MyData_TitleItem_Panel_C", "WBP_OBJ_Gallery_MyData_TitleText_Panel_C",
+                "WBP_OBJ_Gallery_MyData_UseRate_Panel_C"});
+        });
+    if (training_menu(type))
+        return unique_surface(tree, [](const Node& node) {
+            return node.type == "WBP_GRP_HUD_CSG_Menu_Base_A_C";
+        });
+    return none;
+}
+
 NodeIndex stage_surface(GameReader& game, const WidgetTree& tree)
 {
     NodeIndex stage = none;
@@ -929,7 +1159,7 @@ NodeIndex stage_surface(GameReader& game, const WidgetTree& tree)
             has_title |= !named_text(tree, root.root, "Text_StageTitle").empty();
             continue;
         }
-        if (!split_focus_surface(root.type) ||
+        if (!setup_surface(root.type) ||
             game.boolean(root.object, "bIsActive") != true ||
             game.boolean(root.object, "bIsDisableKeyInput") != false) continue;
         if (!stage_list(root.type) || stage != none) return none;
@@ -938,9 +1168,21 @@ NodeIndex stage_surface(GameReader& game, const WidgetTree& tree)
     return has_title ? stage : none;
 }
 
-NodeIndex main_surface(GameReader& game, const WidgetTree& tree, NodeIndex focus)
+NodeIndex main_surface(GameReader& game, const WidgetTree& tree, NodeIndex focus, NodeIndex modal)
 {
-    if (focus != none) return tree[focus].root;
+    if (modal != none) return modal;
+    const auto chart = unique_surface(tree, [&](const Node& node) {
+        if (!episode_chart(node.type)) return false;
+        const auto index = static_cast<NodeIndex>(&node - tree.nodes().data());
+        return !named_text(tree, index, "Text_ScenarioTitle_0").empty();
+    });
+    if (chart != none) return chart;
+    if (focus != none) {
+        const auto owning = tree.ancestor(focus, [](const Node& node) {
+            return overview_surface(node.type) || controls_screen(node.type);
+        });
+        return owning != none ? owning : tree[focus].root;
+    }
     if (const auto stage = stage_surface(game, tree); stage != none) return stage;
     NodeIndex dialog = none;
     NodeIndex most_lines = none;
@@ -960,7 +1202,16 @@ NodeIndex main_surface(GameReader& game, const WidgetTree& tree, NodeIndex focus
             most_lines = i;
         }
     }
-    return dialog != none ? dialog : most_lines;
+    if (dialog != none) return dialog;
+    const auto active = unique_surface(tree, [&](const Node& node) {
+        return overview_surface(node.type) && active_menu(game, node);
+    });
+    if (active != none) return active;
+    const auto specific = unique_surface(tree, [](const Node& node) {
+        return help_panel(node.type) || episode_roster(node.type) ||
+               one_of(node.type, {"WBP_CMN_GuideMessage_C", "WBP_GRP_HUN_Details_C", "WBP_GRP_HUN_MissionDetail_C"});
+    });
+    return specific != none ? specific : most_lines;
 }
 
 } // namespace
@@ -975,6 +1226,12 @@ bool ui_detail::matches_menu_visual(std::string_view root, std::string_view hit,
     if (team_setting(root)) {
         if (hit == "WBP_OBJ_Common_HitBTN_Remove") return visual == "WBP_OBJ_Com_BTN_Remove";
         if (hit == "WBP_OBJ_Common_HitBTN_Replace") return visual == "WBP_OBJ_Com_BTN_Replace";
+    }
+
+    if (episode_roster(root)) {
+        const auto index = hit == "WBP_OBJ_Common_HitButton" ? std::optional{0U} :
+            suffix_number(hit, "WBP_OBJ_Common_HitButton_");
+        return index && suffix_number(visual, "WBP_OBJ_AI_BTN_Menu_") == index;
     }
 
     auto index = suffix_number(hit, "WBP_OBJ_Common_HitBtn_Text_");
@@ -1110,26 +1367,35 @@ UiReader::ControlDetails UiReader::settled_controls(ObjectRef panel, ObjectRef f
     return observed;
 }
 
-ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic)
+ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic, bool diagnostics)
 {
     WidgetTree tree(game_);
     tree.capture(roots, cinematic);
     ScreenReading result;
-    const auto focus = focused_widget(game_, tree);
-    const auto surface = main_surface(game_, tree, focus);
+    const auto modal = modal_surface(game_, tree);
+    auto focus = focused_widget(game_, tree, modal);
+    const auto surface = main_surface(game_, tree, focus, modal);
+    if (surface != none && episode_chart(tree[surface].type) && focus != none && !tree.within(focus, surface))
+        focus = none;
+    if (diagnostics && surface != none)
+        result.visible_surfaces.push_back(tree[surface].type + " (" + tree[surface].name + ")");
+    for (NodeIndex i = 0; diagnostics && i < tree.nodes().size() && result.visible_surfaces.size() < 28; ++i) {
+        const auto& node = tree[i];
+        if (i == surface || (node.parent != none && !overview_surface(node.type) && !raised_dialog(node.type))) continue;
+        if (node.visible) result.visible_surfaces.push_back(node.type + " (" + node.name + ")");
+    }
     if (surface != none) result.root = tree[surface].object;
     if (focus != none) result.focus = tree[focus].object;
     const auto side_changer = game_.engine().find_class("SSMenuButtonSideChanger");
-    const auto modal = surface != none && root_is_dialog(tree[surface].type) ? surface : none;
-
-    if (focus != none) result.announcement = focused_label(game_, tree, focus, side_changer);
+    std::unordered_set<NodeIndex> consumed;
+    collect_subtitle(game_, tree, result, consumed, modal);
+    collect_tutorial(game_, tree, result, consumed, modal);
+    if (focus != none && !consumed.contains(focus))
+        result.announcement = focused_label(game_, tree, focus, side_changer);
     if (result.announcement.empty() && surface != none && tree[surface].type == "WBP_Title_C") {
         for (auto i = surface + 1; i < tree[surface].end; ++i)
             if (tree[i].type == "WBP_Title_Button_PC_C")
                 append(result.announcement, named_text(tree, i, "Caption_00"));
-    }
-    if (result.announcement.empty() && modal != none && !episode_screen(tree[modal].type)) {
-        for (auto i = modal + 1; i < tree[modal].end; ++i) append(result.announcement, tree[i].text);
     }
     if (surface != none && stage_list(tree[surface].type) &&
         (result.announcement.empty() || focus == surface)) {
@@ -1147,14 +1413,50 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic)
         }
         if (!title.empty() && !ambiguous) result.announcement = std::move(title);
     }
-    if (surface != none && episode_screen(tree[surface].type)) {
-        auto context = episode_context(tree, surface, modal == surface);
-        // Wire the currently rendered chart or decision context to the active view only.
-        append(context, result.announcement);
-        result.announcement = std::move(context);
-    }
+    auto review_scope = none;
+    if (surface != none) {
+        const auto& current = tree[surface];
+        if (modal != none) {
+            const auto selection = std::move(result.announcement);
+            result.announcement = visible_lines(tree, modal, consumed, selection);
+            append(result.announcement, selection);
+        } else if (episode_chart(current.type)) {
+            result.announcement = episode_chart_text(tree, surface);
+        } else if (episode_roster(current.type)) {
+            auto roster = named_text(tree, surface, "CaracterText_0");
+            append(roster, named_text(tree, surface, "TXT_ChapterTitle"));
+            append(roster, result.announcement);
+            append(roster, named_text(tree, surface, "TXT_main"));
+            result.announcement = std::move(roster);
+        } else if (focus != none) {
+            review_scope = tournament_viewer(game_, tree, focus);
+            if (review_scope != none && !result.announcement.empty())
+                append(result.announcement, tournament_rules(game_, tree, review_scope, consumed));
+        }
 
-    std::unordered_set<NodeIndex> consumed;
+        if (modal == none && review_scope == none) {
+            const auto details = other_menu_panel(game_, tree, surface);
+            if (details != none)
+                append(result.announcement, visible_lines(tree, details, consumed, result.announcement));
+            else if (help_panel(current.type) || current.type == "WBP_CMN_GuideMessage_C" ||
+                     one_of(current.type, {"WBP_GRP_HUN_MissionDetail_C", "WBP_GRP_HUN_Details_C"}) ||
+                     current.type == "WBP_GRP_SH_Detail_00_C")
+                append(result.announcement, visible_lines(tree, surface, consumed, result.announcement));
+            else if (result.announcement.empty() && overview_surface(current.type) &&
+                     !character_grid(current.type) && !stage_list(current.type))
+                result.announcement = visible_lines(tree, surface, consumed);
+        }
+
+        if (result.announcement.empty() && character_grid(current.type) &&
+            (focus != none || active_menu(game_, current))) {
+            const auto plate = associated_panel(game_, tree, surface, "SSBattleSetupController",
+                                                "BattleSetupCharaListWidget", "CharaNameWidget");
+            if (plate != none) {
+                result.announcement = named_text(tree, plate, "Text_Name");
+                append(result.announcement, named_text(tree, plate, "Text_Name_Plus"));
+            }
+        }
+    }
     const auto panel = focus == none ? none : tree.ancestor(focus, [](const Node& node) {
         return control_panel(node.name, node.type);
     });
@@ -1177,32 +1479,43 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic)
             }
         }
         auto details = settled_controls(tree[panel].object, tree[skill_row].object, std::move(observed));
-        for (const auto& line : details.lines) append(result.announcement, line);
+        for (const auto& line : details.lines) append(result.control_details, line);
     } else {
         reset();
     }
 
-    collect_subtitle(game_, tree, result, consumed, modal);
-    collect_tutorial(game_, tree, result, consumed, modal);
-    if (!cinematic) collect_free_training_help(game_, tree, result);
+    if (!cinematic && modal == none) collect_free_training_help(game_, tree, result);
 
     std::vector<Item> items;
-    bool shown_focus = false;
-    if (!result.announcement.empty() && focus != none) {
-        put_item(items, tree, focus, result.announcement);
-        shown_focus = !items.empty();
-        if (shown_focus && panel != none && skill_row != none)
+    NodeIndex reviewed_focus = none;
+    auto focus_review = result.announcement;
+    append(focus_review, result.control_details);
+    if (!focus_review.empty() && focus != none) {
+        const auto visual = related_hit_label(game_, tree, focus);
+        auto focus_position = visual.value_or(focus);
+        const auto setting = tree.ancestor(focus_position, [&](const Node& node) {
+            return option_row(game_, node, side_changer);
+        });
+        if (setting != none) focus_position = setting;
+        put_item(items, tree, focus_position, focus_review);
+        if (!items.empty()) reviewed_focus = focus_position;
+        if (reviewed_focus != none && panel != none && skill_row != none && !result.announcement.empty())
             consume_text(tree, skill_row, consumed, {"caption"});
     }
 
     for (NodeIndex i = 0; i < tree.nodes().size() && items.size() < maximum_items; ++i) {
         const auto& node = tree[i];
-        if (modal != none && node.root != modal) continue;
-        if (side_changer && node.type.starts_with("WBP_") && game_.engine().is_a(node.object, side_changer)) {
+        if ((modal != none && !tree.within(i, modal)) ||
+            (reviewed_focus != none && review_scope != none && tree.within(i, review_scope))) continue;
+        if (option_row(game_, node, side_changer)) {
             const auto value = option_label(game_, tree, i);
             if (value.empty() || !tree.painted(i)) continue;
-            put_item(items, tree, i, value);
+            if (i != reviewed_focus) put_item(items, tree, i, value);
             consume_text(tree, i, consumed, {"Title", "Text_Title", "caption", "Text_Disable"});
+            for (const auto member : {"Label", "Description", "Caption"}) {
+                const auto text = tree.locate(game_.object(node.object, member));
+                if (text && tree.within(*text, i)) consumed.insert(*text);
+            }
         } else if (guide_group(node.type)) {
             auto prompt = help_prompt(tree, i);
             if (!prompt.empty() && tree.painted(i)) {
@@ -1217,7 +1530,8 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic)
                     consume_text(tree, i, consumed, {"caption", "RichText_PadButton_0", "RichText_PadButton_1"});
                 }
             }
-        } else if (node.type.starts_with("WBP_OBJ_BS_CharaIcon_") && character_grid(tree[node.root].type)) {
+        } else if (node.type.starts_with("WBP_OBJ_BS_CharaIcon_") &&
+                   tree.ancestor(i, [](const Node& ancestor) { return character_grid(ancestor.type); }) != none) {
             const auto face = unique_widget(tree, i, [](const Node& leaf) {
                 return leaf.name == "IMG_Face_Main" && leaf.painted;
             });
@@ -1227,19 +1541,16 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic)
     }
 
     std::stable_sort(items.begin(), items.end(), [](const Item& a, const Item& b) {
-        const auto a_line = std::floor(a.position.t / 12.0);
-        const auto b_line = std::floor(b.position.t / 12.0);
-        if (a_line != b_line) return a_line < b_line;
-        return a.position.l < b.position.l;
+        return reading_order(a.position, b.position);
     });
     std::unordered_set<std::string> seen;
     const auto remember = [&](const std::string& text) {
         if (!text.empty() && seen.insert(text).second) result.items.push_back(text);
     };
-    if (!shown_focus) remember(result.announcement);
+    if (reviewed_focus == none) remember(focus_review);
     for (const auto& item : items) remember(item.text);
     remember(result.tutorial);
-    remember(result.subtitle);
+    for (const auto& subtitle : result.subtitles) remember(subtitle.text);
     return result;
 }
 

@@ -19,7 +19,7 @@ Start your screen reader, then open the game normally from Steam or its desktop 
 
 - `F6` reads the current screen.
 - `F7` and `F8` review the previous and next item.
-- `F9` toggles automatic subtitle speech. With it off, text-only narration in subtitle windows can also be muted. Use `F6` to review what is on screen.
+- `F9` switches between reading all visible dialogue and skipping lines whose matching game voice is playing. Text-only lines still read. `F6` can review visible dialogue in either mode.
 - A visible tutorial instruction repeats every 20 seconds.
 
 The native reader is a beta. Please include the game mode and the screen where a line is missed or unclear.

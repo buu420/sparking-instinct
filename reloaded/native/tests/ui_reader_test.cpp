@@ -53,6 +53,10 @@ int main()
         {"WBP_GRP_BS_CharaList_DP_C", "WBP_OBJ_Common_HitBTN_Remove", "WBP_OBJ_Com_BTN_Remove", false},
         {"WBP_GRP_CSG_Top_00_C", "WBP_OBJ_Common_HitButton_1", "WBP_OBJ_CSG_BTN_00", true},
         {"WBP_GRP_CSG_Top_00_C", "WBP_OBJ_Common_HitButton_1", "WBP_OBJ_CSG_BTN_01", false},
+        {"WBP_GRP_AI_CharacterSelect_C", "WBP_OBJ_Common_HitButton", "WBP_OBJ_AI_BTN_Menu_00", true},
+        {"WBP_GRP_AI_CharacterSelect_3piece_C", "WBP_OBJ_Common_HitButton_5", "WBP_OBJ_AI_BTN_Menu_05", true},
+        {"WBP_GRP_AI_CharacterSelect_C", "WBP_OBJ_Common_HitButton_5", "WBP_OBJ_AI_BTN_Menu_06", false},
+        {"WBP_GRP_AI_Map_00_C", "WBP_OBJ_Common_HitButton_5", "WBP_OBJ_AI_BTN_Menu_05", false},
     };
     for (const auto& test : selections) {
         if (sparking::ui_detail::matches_menu_visual(test.root, test.hit, test.visual) != test.expected) {

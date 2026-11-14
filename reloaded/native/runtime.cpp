@@ -72,7 +72,7 @@ std::string together(const auto& items)
 Runtime::Runtime(Unreal& engine, const std::filesystem::path& mod,
                  const std::filesystem::path& game_bin, Report report)
     : engine_(engine), game_(engine), ui_(game_), battle_(game_), movie_(game_, mod / L"AudioDescription", report),
-      preference_(game_bin / L"SparkingZeroAccess-subtitles.ini"), report_(std::move(report)),
+      subtitle_reader_(game_), preference_(game_bin / L"SparkingZeroAccess-subtitles.ini"), report_(std::move(report)),
       subtitles_(saved_subtitles(preference_))
 {
 }
@@ -87,6 +87,7 @@ bool Runtime::speak(std::string_view message, bool interrupt)
 void Runtime::reset()
 {
     reading_.reset();
+    subtitle_reader_.reset();
     ui_.reset();
     battle_.reset();
     movie_.reset();
@@ -165,6 +166,7 @@ void Runtime::sample(Clock::time_point now)
         next_movie_ = now + movie_interval;
         if (movie_visible_ != was_visible) {
             reading_.reset();
+            subtitle_reader_.reset();
             ui_.reset();
             battle_.reset();
             items_.clear();
@@ -193,22 +195,25 @@ void Runtime::sample(Clock::time_point now)
     }
 
     const bool changed = reading_.screen_changed(screen_.root, screen_.focus, screen_.announcement);
+    const bool control_details = reading_.control_details_changed(screen_.control_details, changed);
     const bool tutorial = reading_.tutorial_due(screen_.tutorial, now);
-    const bool subtitle = reading_.subtitle_changed(screen_.subtitle);
+    const auto subtitle = subtitle_reader_.sample(screen_.subtitles, subtitles_, now, screen_.tutorial);
     const bool help = reading_.battle_help_changed(screen_.battle_help);
-    const bool menu = changed && screen_.announcement != screen_.tutorial && screen_.announcement != screen_.subtitle;
-    const std::array<std::string_view, 5> lines{
-        hud_.guide,
+    const bool menu = changed && screen_.announcement != screen_.tutorial &&
+        std::ranges::find(screen_.subtitles, screen_.announcement, &SubtitleLine::text) == screen_.subtitles.end();
+    const std::array<std::string_view, 6> lines{
         menu ? std::string_view(screen_.announcement) : std::string_view{},
+        control_details ? std::string_view(screen_.control_details) : std::string_view{},
+        hud_.guide,
         tutorial ? std::string_view(screen_.tutorial) : std::string_view{},
         help ? std::string_view(screen_.battle_help) : std::string_view{},
-        subtitle && subtitles_ && screen_.subtitle != screen_.tutorial ?
-            std::string_view(screen_.subtitle) : std::string_view{}
+        subtitle
     };
-    // A newly opened move guide takes priority over queued gauges. Later
-    // battle cues append so the guide can finish while the player holds Charge.
+    // The current selection supersedes earlier selections even if a HUD still
+    // exists behind the menu. A settled detail card follows its selected row.
     const bool in_battle = (hud_.active && !hud_.items.empty()) || !screen_.battle_help.empty();
-    const bool speaking = speak(together(lines), hud_.guide_opened || !in_battle);
+    const bool interrupt = (menu && screen_.focus) || hud_.guide_opened || (!in_battle && !control_details);
+    const bool speaking = speak(together(lines), interrupt);
     if (!hud_.guide.empty())
         next_battle_speech_ = now + battle_speech_gap;
     if (!speaking && now >= next_battle_speech_) {
@@ -265,8 +270,10 @@ void Runtime::dump(bool battle)
     if (screen_.focus)
         report_("Screen focus: " + engine_.class_name(screen_.focus) + " " + engine_.name_of(screen_.focus));
     if (!battle) {
-        for (const auto root : game_.viewport_roots())
-            report_("Visible root: " + engine_.class_name(root));
+        const auto captured = ui_.sample(game_.viewport_roots(), movie_visible_, true);
+        for (const auto& surface : captured.visible_surfaces)
+            report_("Visible surface: " + surface);
+        if (!screen_.announcement.empty()) report_("Automatic menu speech: " + screen_.announcement);
     }
     for (const auto& item : lines) report_(item);
 }
@@ -275,7 +282,7 @@ void Runtime::toggle_subtitles()
 {
     subtitles_ = !subtitles_;
     const bool saved = save_subtitles(preference_, subtitles_);
-    std::string message = subtitles_ ? "Automatic subtitle speech on." : "Automatic subtitle speech off.";
+    std::string message = subtitles_ ? "All visible dialogue will be read." : "Skip dialogue that the game voices.";
     if (!saved) {
         report_("Could not save the automatic subtitle speech preference.");
         message += " The setting could not be saved.";

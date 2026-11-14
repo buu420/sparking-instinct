@@ -44,6 +44,8 @@ constexpr Method getters[] = {
     {"SSMainGameHUDWidget", "GetSkillGuideSetOfPlayer"},
     {"SSMainGameHUDWidgetRoot", "GetSkillGuideSetOfPlayer"},
     {"SSCriMediaPlayer", "IsPlaying"}, {"SSCriMediaPlayer", "IsPaused"}, {"SSCriMediaPlayer", "IsCrossFading"},
+    {"AtomComponent", "GetCueName"}, {"AtomComponent", "GetStatus"},
+    {"AtomComponent", "GetVolume"}, {"AtomComponent", "IsPaused"},
     {"ManaComponent", "GetSource"}, {"ManaComponent", "GetFrameNumber"},
     {"ManaComponent", "GetStatus"}, {"ManaComponent", "IsPlaying"},
     {"ManaComponent", "IsPaused"}, {"ManaMovie", "GetUrl"}
@@ -234,6 +236,13 @@ std::string GameReader::text(ObjectRef owner, std::string_view path)
 {
     const auto value = property(owner, path);
     return value ? text(*value) : std::string{};
+}
+
+std::string GameReader::text_key(ObjectRef text_widget)
+{
+    const auto value = property(text_widget, "Text");
+    if (!value || value->field.kind != Kind::Text || value->field.size != 0x18) return {};
+    return engine_.text_key(value->address);
 }
 
 std::optional<ArrayHeader> GameReader::array(Value value)

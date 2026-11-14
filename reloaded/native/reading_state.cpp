@@ -50,6 +50,12 @@ bool ReadingState::screen_changed(ObjectRef root, ObjectRef focus, const std::st
     return true;
 }
 
+bool ReadingState::control_details_changed(const std::string& value, bool selection_changed)
+{
+    if (selection_changed) control_details_.clear();
+    return changed_text(control_details_, missing_control_details_, value);
+}
+
 bool ReadingState::tutorial_due(const std::string& value, Clock::time_point now)
 {
     if (value.empty()) {
@@ -64,11 +70,6 @@ bool ReadingState::tutorial_due(const std::string& value, Clock::time_point now)
     tutorial_ = value;
     next_tutorial_ = now + tutorial_repeat;
     return true;
-}
-
-bool ReadingState::subtitle_changed(const std::string& value)
-{
-    return changed_text(subtitle_, missing_subtitle_, value);
 }
 
 bool ReadingState::battle_help_changed(const std::string& value)

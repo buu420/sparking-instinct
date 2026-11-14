@@ -11,6 +11,8 @@ constexpr Address find_rva = 0x2eaa760;
 constexpr Address get_objects_rva = 0x2eb3980;
 constexpr Address weak_serial_rva = 0x2e95690;
 constexpr Address text_string_rva = 0x2c3c040;
+constexpr Address text_key_rva = 0x2c3d590;
+constexpr Address voice_component_rva = 0x2485480;
 constexpr Address destroy_text_rva = 0x2e99710;
 constexpr Address free_rva = 0x2c07d10;
 
@@ -71,6 +73,14 @@ EngineApi engine_api(Address base)
     api.serial = reinterpret_cast<decltype(api.serial)>(base + weak_serial_rva);
     api.process_event = reinterpret_cast<decltype(api.process_event)>(base + process_event_rva);
     api.text_string = reinterpret_cast<decltype(api.text_string)>(base + text_string_rva);
+    // Optional voice inspection is bound independently so caption speech
+    // still works if either native helper cannot be confirmed.
+    if (bytes_match(base, text_key_rva,
+                    {0x40,0x53,0x48,0x83,0xec,0x50,0x48,0x8b,0xd9,0x48,0x8b,0x0a,0x48,0x8b,0x01,0xff}))
+        api.text_key = reinterpret_cast<decltype(api.text_key)>(base + text_key_rva);
+    if (bytes_match(base, voice_component_rva,
+                    {0x48,0x89,0x5c,0x24,0x10,0x57,0x48,0x83,0xec,0x20,0x8b,0x41,0x38,0x33,0xff,0x48}))
+        api.voice_component = reinterpret_cast<decltype(api.voice_component)>(base + voice_component_rva);
     api.destroy_text = reinterpret_cast<decltype(api.destroy_text)>(base + destroy_text_rva);
     api.free = reinterpret_cast<decltype(api.free)>(base + free_rva);
     return api;

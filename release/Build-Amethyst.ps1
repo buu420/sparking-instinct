@@ -44,8 +44,9 @@ Sparking Instinct $SparkingPackageVersion beta for DRAGON BALL: Sparking! ZERO.
 This copy is installed and removed by Amethyst. To play, launch the game as
 usual from Steam or the Steam desktop shortcut. Use Amethyst to uninstall.
 
-F6 reads the screen. F7 and F8 review the previous and next item. F9 toggles
-automatic subtitle speech. See the release page for controls and coverage.
+F6 reads the screen. F7 and F8 review the previous and next item. F9
+switches between reading all dialogue and skipping verified voiced lines.
+See the release page for controls and coverage.
 
 Buu420 made the audio descriptions and maintains this native Reloaded II mod.
 "@
