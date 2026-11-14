@@ -436,5 +436,15 @@ int main()
     data(guide).blueprint = "WBP_Rep_SkillGuideSet_P1_C";
     data(player).flags["IsBattleKeyPressed11"] = false;
     frame = reader.sample(std::array{guide}, start);
-    check(frame.guide_visible && frame.guide.empty(), "no auto guide when native charge is false");
+    check(frame.guide_visible && frame.guide.find("Instant Transmission") != std::string::npos,
+          "the visible local Charge popup survives a false native key read");
+    check(reader.sample(std::array{guide}, start + 80ms).guide.empty(), "one visible hold while key is false");
+    (void)reader.sample(std::array{main}, start + 160ms);
+    check(!reader.sample(std::array{guide}, start + 320ms).guide.empty(), "native release with hidden popup rearms");
+
+    data(guide).blueprint = "WBP_Rep_TransformGuideSet_P1_C";
+    data(hud_root).refs["HUDWidgetSet.P1SkillGuideWidget"] = guide;
+    reader.reset();
+    frame = reader.sample(std::array{guide}, start);
+    check(frame.guide.empty(), "unrecognized visual is ineligible for false-key fallback");
 }

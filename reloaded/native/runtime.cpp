@@ -198,17 +198,17 @@ void Runtime::sample(Clock::time_point now)
     const bool help = reading_.battle_help_changed(screen_.battle_help);
     const bool menu = changed && screen_.announcement != screen_.tutorial && screen_.announcement != screen_.subtitle;
     const std::array<std::string_view, 5> lines{
+        hud_.guide,
         menu ? std::string_view(screen_.announcement) : std::string_view{},
         tutorial ? std::string_view(screen_.tutorial) : std::string_view{},
         help ? std::string_view(screen_.battle_help) : std::string_view{},
-        hud_.guide,
         subtitle && subtitles_ && screen_.subtitle != screen_.tutorial ?
             std::string_view(screen_.subtitle) : std::string_view{}
     };
-    // Battle cues share the speech queue so changing HUD text or dialogue
-    // cannot cancel the Reset Positions prompt or the moves for this hold.
+    // A newly opened move guide takes priority over queued gauges. Later
+    // battle cues append so the guide can finish while the player holds Charge.
     const bool in_battle = (hud_.active && !hud_.items.empty()) || !screen_.battle_help.empty();
-    const bool speaking = speak(together(lines), !in_battle);
+    const bool speaking = speak(together(lines), !hud_.guide.empty() || !in_battle);
     if (!hud_.guide.empty())
         next_battle_speech_ = now + battle_speech_gap;
     if (!speaking && now >= next_battle_speech_) {

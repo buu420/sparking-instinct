@@ -506,15 +506,18 @@ BattleReading BattleReader::sample(std::span<const ObjectRef> roots, Clock::time
 
         const auto guide = widgets.sides[context.display_side].guide;
         if (guide) {
+            const bool charge_popup =
+                game_.engine().class_name(guide) == battle_sides[context.display_side].guide;
             // A continuous hold can hide individual rows or rebuild the visible guide.
-            // Test the hidden interval only when there is no native hold result.
-            if (!held && guide_hidden_since_ && now - *guide_hidden_since_ >= guide_off_interval)
+            // Without positive native hold evidence, a prolonged absence starts a new read.
+            if (held != true && guide_hidden_since_ && now - *guide_hidden_since_ >= guide_off_interval)
                 guide_announced_ = false;
             guide_hidden_since_.reset();
             const auto rows = skill_guide(screen, guide);
             result.guide_visible = !rows.empty();
             result.items.insert(result.items.end(), rows.begin(), rows.end());
-            if (held != false && !guide_announced_ && !rows.empty()) {
+            // The game can mask the pawn's Charge key while this exact HUD is painted.
+            if ((held != false || charge_popup) && !guide_announced_ && !rows.empty()) {
                 result.guide = "Skill guide. " + join(rows, ". ");
                 guide_announced_ = true;
             }
