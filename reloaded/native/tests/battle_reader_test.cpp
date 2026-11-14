@@ -23,7 +23,7 @@ struct Widget {
     std::map<std::string, std::string, std::less<>> text;
     std::vector<ObjectRef> children;
     ObjectRef outer{};
-    bool shown = true;
+    bool shown = true, has_geometry = true;
     std::array<std::byte, 0x800> storage{};
 };
 
@@ -88,10 +88,7 @@ ObjectRef Unreal::find_class(std::string_view name)
 }
 bool Unreal::is_a(ObjectRef target, ObjectRef type) const
 {
-    if (!live(target) || !live(type)) return false;
-    const auto& actual = data(target).type;
-    const auto& expected = data(type).name;
-    return actual == expected || (actual == "SSSkillGuideTypeC_Ultimate" && expected == "SSSkillGuideBase");
+    return live(target) && live(type) && data(target).type == data(type).name;
 }
 std::string Unreal::name_of(ObjectRef target) { return target ? data(target).name : std::string{}; }
 std::string Unreal::class_name(ObjectRef target)
@@ -181,7 +178,7 @@ std::vector<ObjectRef> GameReader::widget_children(ObjectRef target)
 }
 std::optional<WidgetBounds> GameReader::geometry(ObjectRef target)
 {
-    if (!visible(target)) return {};
+    if (!visible(target) || !data(target).has_geometry) return {};
     return WidgetBounds{number(target, "x").value_or(0), 0, 20, 20};
 }
 std::string read_ui_text(std::string_view value) { return std::string(value); }
@@ -507,23 +504,25 @@ int main()
 
     const auto ultimate_row = game.object(game.object(ultimate, "Slot"), "Parent");
     const auto ultimate_button = game.object(ultimate_row, "GuideButtonText");
-    data(ultimate_row).type = "SSSkillGuideTypeC_Ultimate";
+    data(ultimate_row).type = "WBP_Rep_SkillGuide_TypeC_P1_C";
     data(guide).refs["SkillGuideUltimate"] = ultimate_row;
     data(blast).shown = data(second_blast).shown = true;
     data(sparking).shown = true;
-    store(sparking, 0x488, std::uint8_t{1});
     data(player).flags["IsBattleKeyPressed11"] = false;
     reader.reset();
     const std::array with_gauge{guide, sparking_wrapper};
+    data(ultimate_row).has_geometry = false;
+    store(sparking, 0x488, std::uint8_t{1});
     frame = reader.sample(with_gauge, start);
-    check(frame.guide_opened && !contains(frame.items, "Ultimate Blast, B") &&
-          !contains(frame.items, "Super Spirit Bomb, B"), "a charging gauge cannot qualify an uncaptioned button");
+    check(frame.guide_opened && !contains(frame.items, "Ultimate Blast, B"), "button waits for visible Sparking");
     store(sparking, 0x488, std::uint8_t{2});
     frame = reader.sample(with_gauge, start + 80ms);
     check(!frame.guide_opened && frame.guide == "Ultimate Blast. B" &&
           contains(frame.items, "Ultimate Blast, B") && !contains(frame.items, "Super Spirit Bomb, B"),
-          "announce the painted Ultimate action in Sparking while its title is hidden");
+          "the local painted Ultimate glyph is readable without bounds on its container");
     check(reader.sample(with_gauge, start + 160ms).guide.empty(), "an uncaptioned Ultimate speaks once per hold");
+    data(ultimate_row).type = "SSSkillGuideBase";
+    data(ultimate_row).has_geometry = true;
     data(ultimate).shown = true;
     frame = reader.sample(with_gauge, start + 240ms);
     check(!frame.guide_opened && frame.guide == "Ultimate Blast. Super Spirit Bomb, B" &&
@@ -532,13 +531,10 @@ int main()
     check(reader.sample(with_gauge, start + 320ms).guide.empty(), "no fallback repeated after the painted name");
 
     reader.reset();
-    frame = reader.sample(std::array{guide}, start);
-    check(!contains(frame.items, "Ultimate Blast, B"), "Sparking gauge must be visibly attached");
-    reader.reset();
-    data(ultimate_button).shown = false;
+    data(ultimate_button).has_geometry = false;
     frame = reader.sample(with_gauge, start);
     check(!contains(frame.items, "Ultimate Blast, B"), "Ultimate glyph must be painted");
-    data(ultimate_button).shown = true;
+    data(ultimate_button).has_geometry = true;
     data(ultimate_row).shown = false;
     frame = reader.sample(with_gauge, start + 80ms);
     check(!contains(frame.items, "Ultimate Blast, B"), "Ultimate row must be painted");

@@ -450,15 +450,66 @@ ObjectRef visible_child(const VisibleWidgets& screen, ObjectRef root, std::strin
     return found;
 }
 
-std::string painted_guide_text(const VisibleWidgets& screen, ObjectRef widget)
+std::string guide_text(GameReader& game, ObjectRef widget)
 {
-    if (!screen.on_screen(widget)) return {};
-    auto& game = screen.game;
     if (game.integer(widget, "ColorAndOpacity.ColorUseRule") == 0 &&
         game.number(widget, "ColorAndOpacity.SpecifiedColor.A").value_or(1) <= 0.001) return {};
     auto text = game.text(widget, "Text");
     if (text.empty()) text = game.call_text(widget, "GetText");
     return read_ui_text(text);
+}
+
+std::string painted_guide_text(const VisibleWidgets& screen, ObjectRef widget)
+{
+    return screen.on_screen(widget) ? guide_text(screen.game, widget) : std::string{};
+}
+
+std::optional<WidgetBounds> guide_clip(WidgetBounds a, std::optional<WidgetBounds> b)
+{
+    if (!b) return {};
+    const auto left = (std::max)(a.x, b->x);
+    const auto top = (std::max)(a.y, b->y);
+    const auto right = (std::min)(a.x + a.width, b->x + b->width);
+    const auto bottom = (std::min)(a.y + a.height, b->y + b->height);
+    if (right - left < 1 || bottom - top < 1) return {};
+    return WidgetBounds{left, top, right - left, bottom - top};
+}
+
+std::string visible_ultimate_button(GameReader& game, ObjectRef guide)
+{
+    struct Pending { ObjectRef widget; WidgetBounds clip; bool in_ultimate; };
+    const auto clip = game.geometry(guide);
+    if (!clip) return {};
+    std::vector<Pending> pending{{guide, *clip, false}};
+    ObjectRef row;
+    std::string glyph;
+    for (std::size_t index = 0; index < pending.size() && index < 256; ++index) {
+        auto [widget, area, in_ultimate] = pending[index];
+        if (!game.visible(widget) || game.number(widget, "ColorAndOpacity.A").value_or(1) <= 0.001) continue;
+        const auto name = game.engine().name_of(widget);
+        const auto clipping = game.integer(widget, "Clipping").value_or(0);
+        if ((clipping >= 1 && clipping <= 3) || game.engine().class_name(widget).ends_with("ScrollBox")) {
+            const auto clipped = guide_clip(area, game.geometry(widget));
+            if (!clipped) continue;
+            area = *clipped;
+        }
+        if (name == guide_slots[ultimate_guide_slot].name) {
+            if (row && row != widget) return {};
+            row = widget;
+            in_ultimate = true;
+        }
+        if (in_ultimate && (name == "GuideButton" || name == "GuideButton_01") &&
+            game.engine().class_name(widget) == "RichTextBlock" && guide_clip(area, game.geometry(widget))) {
+            auto text = guide_text(game, widget);
+            if (text.empty() || text.find("Unidentified control") != text.npos) continue;
+            if (!glyph.empty() && glyph != text) return {};
+            glyph = std::move(text);
+            continue;
+        }
+        for (const auto child : game.widget_children(widget))
+            pending.push_back({child, area, in_ultimate});
+    }
+    return glyph;
 }
 
 struct GuideRows {
@@ -501,18 +552,10 @@ GuideRows skill_guide(const VisibleWidgets& screen, ObjectRef guide, bool sparki
             rows.text[i] = std::move(label) + ", " + glyph;
             break;
         }
-        if (i != ultimate_guide_slot || !rows.text[i].empty() || !sparking_charge_popup ||
-            screen.game.engine().name_of(row) != slot.name || !screen.is_a(row, "SSSkillGuideTypeC_Ultimate"))
-            continue;
-
-        // This row can display its control without displaying a move name.
-        auto first = guide_button(0);
-        auto second = guide_button(1);
-        if (first.empty() == second.empty()) continue;
-        auto& glyph = first.empty() ? second : first;
-        if (glyph.find("Unidentified control") == glyph.npos)
-            rows.ultimate_button = std::move(glyph);
     }
+    // The Blueprint can draw its Ultimate button without filling its caption.
+    if (sparking_charge_popup && rows.text[ultimate_guide_slot].empty())
+        rows.ultimate_button = visible_ultimate_button(screen.game, guide);
     return rows;
 }
 
