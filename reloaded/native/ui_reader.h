@@ -14,7 +14,7 @@ struct ScreenReading {
     std::vector<std::string> visible_surfaces;
     std::string announcement, tutorial, battle_help;
     std::vector<SubtitleLine> subtitles;
-    std::string control_details;
+    std::string control_details, selection_details;
 };
 
 std::string read_ui_text(std::string_view rendered_text);

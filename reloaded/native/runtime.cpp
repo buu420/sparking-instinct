@@ -15,7 +15,32 @@ constexpr auto display_interval = 80ms;
 constexpr auto movie_interval = 33ms;
 constexpr auto stats_interval = 20s;
 constexpr auto battle_speech_gap = 650ms;
+constexpr auto capture_interval = 500ms;
 constexpr std::size_t max_utterance = 12000;
+constexpr std::size_t capture_limit = 6144;
+constexpr std::size_t capture_roots = 24;
+
+std::string_view utf8_prefix(std::string_view text, std::size_t bytes)
+{
+    if (text.size() <= bytes) return text;
+    while (bytes && (static_cast<unsigned char>(text[bytes]) & 0xc0) == 0x80) --bytes;
+    return text.substr(0, bytes);
+}
+
+void append_capture(std::string& packet, std::string_view field, std::string_view value)
+{
+    constexpr std::string_view clipped = " [truncated]";
+    const auto available = capture_limit - packet.size();
+    if (available <= field.size() + clipped.size()) return;
+    packet += field;
+    const auto budget = capture_limit - packet.size();
+    if (value.size() <= budget) {
+        packet += value;
+    } else {
+        packet += utf8_prefix(value, budget - clipped.size());
+        packet += clipped;
+    }
+}
 
 bool saved_subtitles(const std::filesystem::path& path)
 {
@@ -65,9 +90,7 @@ std::string together(const auto& items)
         if (!result.empty()) result += ". ";
         if (item.size() <= max_utterance) result += item;
         else {
-            std::size_t end = max_utterance;
-            while (end && (static_cast<unsigned char>(item[end]) & 0xc0) == 0x80) --end;
-            result += item.substr(0, end);
+            result += utf8_prefix(item, max_utterance);
             break;
         }
     }
@@ -85,9 +108,13 @@ Runtime::Runtime(Unreal& engine, const std::filesystem::path& mod,
 
 bool Runtime::speak(std::string_view message, bool interrupt)
 {
-    if (message.empty() || !speech::say(message, interrupt)) return false;
-    if (debug_) report_(std::string("Speech: ") + std::string(message));
-    return true;
+    if (message.empty()) return false;
+    const bool queued = speech::say(message, interrupt);
+    std::string record;
+    append_capture(record, queued ? "Speech: " : "Speech rejected: ", message);
+    if (queued) append_capture(record, " ", interrupt ? "[interrupt]" : "[queue]");
+    report_(record);
+    return queued;
 }
 
 void Runtime::reset()
@@ -102,7 +129,9 @@ void Runtime::reset()
     items_.clear();
     review_index_ = 0;
     movie_visible_ = false;
-    next_ = next_movie_ = next_battle_speech_ = {};
+    next_ = next_movie_ = next_battle_speech_ = next_capture_ = {};
+    captured_.reset();
+    capture_dirty_ = false;
 }
 
 void Runtime::foreground_lost()
@@ -110,12 +139,14 @@ void Runtime::foreground_lost()
     if (!foreground_) return;
     foreground_ = false;
     speech::set_foreground(false);
+    report_("Game window lost focus.");
     reset();
 }
 
 void Runtime::map_start()
 {
     if (map_depth_++ != 0) return;
+    report_("Map loading.");
     speech::stop();
     reset();
 }
@@ -125,6 +156,7 @@ void Runtime::map_end()
     if (!map_depth_ || --map_depth_) return;
     game_.reset();
     engine_.clear_layouts();
+    report_("Map load finished.");
 }
 
 void Runtime::sample_keys(bool dispatch)
@@ -146,6 +178,7 @@ void Runtime::frame(bool foreground)
     if (!foreground_) {
         foreground_ = true;
         speech::set_foreground(true);
+        report_("Game window in focus. Live capture active.");
         sample_keys(false);
     }
     if (map_depth_ || !engine_.readable()) {
@@ -190,7 +223,8 @@ void Runtime::sample(Clock::time_point now)
     reading_.update_hud(hud_.items, hud_.announcements, now);
     auto next_items = screen_.items;
     append_missing(next_items, hud_.items);
-    if (next_items != items_) {
+    const bool items_changed = next_items != items_;
+    if (items_changed) {
         const auto previous = items_.empty() ? std::string_view{} : std::string_view(items_[review_index_]);
         const auto found = std::ranges::find(next_items, previous);
         review_index_ = found == next_items.end() ? 0 : static_cast<std::size_t>(found - next_items.begin());
@@ -215,6 +249,7 @@ void Runtime::sample(Clock::time_point now)
     // The current selection supersedes earlier selections even if a HUD still
     // exists behind the menu. A settled detail card follows its selected row.
     const bool in_battle = (hud_.active && !hud_.items.empty()) || !screen_.battle_help.empty();
+    capture_screen(now, roots, items_changed, in_battle);
     const bool interrupt = (menu && screen_.focus) || hud_.guide_opened || (!in_battle && !control_details);
     const bool speaking = speak(together(lines), interrupt);
     if (!hud_.guide.empty())
@@ -242,6 +277,44 @@ void Runtime::sample(Clock::time_point now)
         stats_since_ = now;
         total_ms_ = peak_ms_ = 0;
         polls_ = 0;
+    }
+}
+
+void Runtime::capture_screen(Clock::time_point now, std::span<const ObjectRef> roots, bool items_changed, bool in_battle)
+{
+    capture_dirty_ |= items_changed;
+    const auto viewport = roots.first((std::min)(roots.size(), capture_roots));
+    const bool changed = !captured_ || captured_->root != screen_.root || captured_->focus != screen_.focus ||
+        captured_->announcement != screen_.announcement || captured_->details != screen_.control_details ||
+        captured_->selection != screen_.selection_details || captured_->battle != in_battle ||
+        captured_->movie != movie_visible_ || !std::ranges::equal(viewport, captured_->roots);
+    if (!changed && (now < next_capture_ || (!capture_dirty_ && !debug_))) return;
+
+    const auto describe = [&](ObjectRef ref) {
+        if (!ref) return std::string("(none)");
+        return engine_.class_name(ref) + " " + engine_.name_of(ref);
+    };
+    std::string record = "Live screen";
+    append_capture(record, " | Screen root: ", describe(screen_.root));
+    append_capture(record, " | Screen focus: ", describe(screen_.focus));
+    if (!screen_.selection_details.empty())
+        append_capture(record, " | Selection: ", screen_.selection_details);
+    append_capture(record, " | State: ", movie_visible_ ? "movie" : in_battle ? "battle" : "menu");
+    append_capture(record, " | Automatic menu speech: ", screen_.announcement.empty() ? "(none)" : screen_.announcement);
+    if (!screen_.control_details.empty())
+        append_capture(record, " | Control details: ", screen_.control_details);
+    for (const auto root : viewport)
+        append_capture(record, " | Visible root: ", engine_.class_name(root));
+    append_capture(record, " | Review items: ", std::to_string(items_.size()));
+    for (const auto& item : items_) {
+        if (record.size() + 24 >= capture_limit) break;
+        append_capture(record, " | Text: ", item);
+    }
+    if (report_(record)) {
+        captured_ = CapturedScreen{screen_.root, screen_.focus, {viewport.begin(), viewport.end()},
+            screen_.announcement, screen_.control_details, screen_.selection_details, in_battle, movie_visible_};
+        next_capture_ = now + capture_interval;
+        capture_dirty_ = false;
     }
 }
 
@@ -302,8 +375,7 @@ void Runtime::hotkey(int key)
     case VK_F4: dump(false); break;
     case VK_F5:
         debug_ = !debug_;
-        report_(debug_ ? "Reader diagnostics on." : "Reader diagnostics off.");
-        speak(debug_ ? "Reader diagnostics on." : "Reader diagnostics off.");
+        speak(debug_ ? "Detailed capture on." : "Detailed capture off.");
         break;
     case VK_F6: review(0); break;
     case VK_F7: review(-1); break;

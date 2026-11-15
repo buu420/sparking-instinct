@@ -15,6 +15,7 @@ constexpr Address text_key_rva = 0x2c3d590;
 constexpr Address voice_component_rva = 0x2485480;
 constexpr Address destroy_text_rva = 0x2e99710;
 constexpr Address free_rva = 0x2c07d10;
+constexpr Address character_record_rva = 0x204bd10;
 
 template<std::size_t N>
 bool bytes_match(Address base, Address rva, const std::uint8_t (&expected)[N])
@@ -85,6 +86,10 @@ EngineApi engine_api(Address base)
         api.voice_component = reinterpret_cast<decltype(api.voice_component)>(base + voice_component_rva);
     api.destroy_text = reinterpret_cast<decltype(api.destroy_text)>(base + destroy_text_rva);
     api.free = reinterpret_cast<decltype(api.free)>(base + free_rva);
+    if (bytes_match(base, character_record_rva,
+                    {0x48,0x89,0x5c,0x24,0x10,0x57,0x48,0x83,0xec,0x20,0x48,0x8b,0x1a,
+                     0x48,0x8b,0xf9,0x8b,0x81,0x58,0x06}))
+        api.character_record = reinterpret_cast<decltype(api.character_record)>(base + character_record_rva);
     return api;
 }
 

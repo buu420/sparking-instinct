@@ -14,6 +14,7 @@ struct Widget {
     std::string type, name, base, text;
     std::vector<ObjectRef> children;
     std::unordered_map<std::string, ObjectRef> links;
+    std::unordered_map<std::string, std::string> values;
     WidgetBounds bounds{0, 0, 800, 600};
     bool visible{true}, focused{}, active{true};
     NameId episode_key{};
@@ -23,6 +24,16 @@ struct Widget {
 std::vector<Widget> widgets;
 std::vector<std::string> classes;
 NameId chart_cursor{}, map_cursor{};
+ObjectRef singleton, fighter_data;
+std::unordered_map<std::uint32_t, ObjectRef> fighters;
+std::unordered_map<Address, std::vector<std::byte>> native_values;
+
+template<class T> void set_native(Address address, const T& value)
+{
+    auto& bytes = native_values[address];
+    bytes.resize(sizeof value);
+    std::memcpy(bytes.data(), &value, sizeof value);
+}
 
 Widget& widget(ObjectRef object) { return widgets.at(object.index); }
 
@@ -63,6 +74,11 @@ void check(bool value, std::string_view message)
 namespace sparking {
 bool guarded_copy(void* destination, Address source, std::size_t bytes) noexcept
 {
+    if (const auto field = native_values.find(source); field != native_values.end()) {
+        if (field->second.size() != bytes) return false;
+        std::memcpy(destination, field->second.data(), bytes);
+        return true;
+    }
     constexpr Address direction_offset = 0x501;
     constexpr Address icon_offset = 0x448;
     constexpr Address icon_key_offset = 0x440;
@@ -104,6 +120,11 @@ ObjectRef GameReader::object(ObjectRef owner, std::string_view path)
     return found == widget(owner).links.end() ? ObjectRef{} : found->second;
 }
 
+bool GameReader::matches_object(ObjectRef owner, std::string_view path, ObjectRef target)
+{
+    return target && object(owner, path) == target;
+}
+
 std::optional<bool> GameReader::boolean(ObjectRef owner, std::string_view path)
 {
     if (path == "bIsActive") return widget(owner).active;
@@ -124,7 +145,10 @@ std::optional<bool> GameReader::call_bool(ObjectRef owner, std::string_view meth
 std::optional<double> GameReader::call_number(ObjectRef, std::string_view, std::optional<std::int32_t>) { return {}; }
 std::string GameReader::text(ObjectRef owner, std::string_view path)
 {
-    return owner && path == "Text" ? widget(owner).text : std::string{};
+    if (!owner) return {};
+    if (path == "Text") return widget(owner).text;
+    const auto found = widget(owner).values.find(std::string(path));
+    return found == widget(owner).values.end() ? std::string{} : found->second;
 }
 std::string GameReader::call_text(ObjectRef, std::string_view, std::optional<std::int32_t>) { return {}; }
 bool GameReader::visible(ObjectRef owner) { return owner && widget(owner).visible; }
@@ -135,6 +159,18 @@ std::string Unreal::name_of(ObjectRef owner) { return owner ? widget(owner).name
 std::string Unreal::class_name(ObjectRef owner) { return owner ? widget(owner).type : std::string{}; }
 ObjectRef Unreal::find(std::string_view) { return {}; }
 ObjectRef Unreal::game_instance() { return {}; }
+ObjectRef Unreal::game_singleton() { return singleton; }
+ObjectRef Unreal::character_asset(ObjectRef data, NameId key)
+{
+    if (data != fighter_data || key.number) return {};
+    const auto found = fighters.find(key.index);
+    return found == fighters.end() ? ObjectRef{} : found->second;
+}
+ObjectRef Unreal::capture(Address address)
+{
+    if (!address || address > widgets.size()) return {};
+    return {address, static_cast<int>(address - 1), 1};
+}
 ObjectRef Unreal::outer(ObjectRef) { return {}; }
 ObjectRef Unreal::find_class(std::string_view name)
 {
@@ -257,6 +293,88 @@ int main()
     reading = reader.sample(std::array{technique, roster, team, transforms, name_plate});
     check(reading.root == team && reading.announcement == "Already assigned",
           "Before opening the roster, the filled team slot must still announce its own text");
+
+    widget(slot).focused = false;
+    widget(roster).active = true;
+    singleton = make_widget("KoratGameSingleton", "GameSingleton");
+    fighter_data = make_widget("KoratCharacterDataAsset", "FighterData");
+    widget(singleton).links["CharacterData"] = fighter_data;
+    auto alias_texture = make_widget("Texture2D", "T_UI_ChThumbP1_0000_40_00");
+    auto other_texture = make_widget("Texture2D", "T_UI_ChThumbP1_0020_30_00");
+    auto aliased_record = make_widget("SSCharacterDataAsset", "RealRecord_91");
+    auto other_record = make_widget("SSCharacterDataAsset", "RealRecord_92");
+    widget(aliased_record).values["CharacterDataAssetRecord.NameInfo.ShortName"] = "Goku (Super)";
+    widget(aliased_record).values["CharacterDataAssetRecord.NameInfo.TitleName"] = "Super Saiyan Blue";
+    widget(other_record).values["CharacterDataAssetRecord.NameInfo.ShortName"] = "Gohan (Adult)";
+    widget(aliased_record).links["CharacterDataAssetRecord.UIAssets.FaceChipCharacterSelect1P"] = alias_texture;
+    widget(other_record).links["CharacterDataAssetRecord.UIAssets.FaceChipCharacterSelect1P"] = other_texture;
+    fighters = {{91, aliased_record}, {92, other_record}};
+    auto battle_hit = make_widget("WBP_OBJ_Common_HitButton_C", "FixedHit_0", roster);
+    auto battle_remote = make_widget("WBP_OBJ_BS_CharaIcon_DP_C", "Remote_0", roster);
+    widget(battle_remote).base = "SSBattleSetupNewCharaIcon";
+    widget(battle_remote).values["FaceImageWidgetName"] = "IMG_Face_Main";
+    widget(battle_hit).links["RemoteButton"] = battle_remote;
+    auto face = make_widget("Image", "IMG_Face_Main", battle_remote);
+    widget(face).links["Brush.ResourceObject"] = alias_texture;
+    constexpr Address native_hits = 0x100000;
+    constexpr Address native_fighters = 0x200000;
+    set_native(roster.address + 0x550, ArrayHeader{native_hits, 1, 1});
+    set_native(roster.address + 0x568, std::int32_t{31});
+    set_native(roster.address + 0x574, std::int32_t{64});
+    set_native(roster.address + 0x57c, std::int32_t{31});
+    set_native(native_hits, battle_hit.address);
+    set_native(setup.address + 0xe50, ArrayHeader{native_fighters, 64, 64});
+    set_native(native_fighters + 31 * sizeof(NameId), NameId{91, 0});
+    set_native(native_fighters + 32 * sizeof(NameId), NameId{92, 0});
+    reading = reader.sample(std::array{technique, roster, team, transforms, name_plate});
+    check(reading.root == roster && reading.focus == battle_hit && reading.announcement == "Goku (Super). Super Saiyan Blue",
+          "Single Battle must tie the scrolled native selection to its painted portrait and localized fighter record");
+    check(std::ranges::find(reading.items, "Goku (Super). Super Saiyan Blue") != reading.items.end(),
+          "The native alias also needs a name in screen review");
+    check(std::ranges::find(reading.items, "Android 17") == reading.items.end(),
+          "A stale nameplate should not claim the active roster selection in review");
+    widget(slot).focused = true;
+    set_native(setup.address + 0xc90, std::uint8_t{0x1a});
+    set_native(setup.address + 0xcd4, std::uint8_t{0x1b});
+    reading = reader.sample(std::array{technique, roster, team, transforms, name_plate});
+    check(reading.root == team && reading.announcement == "Already assigned",
+          "A pending controller phase must preserve the team-slot selection");
+    set_native(setup.address + 0xcd4, std::uint8_t{0x1a});
+    reading = reader.sample(std::array{technique, roster, team, transforms, name_plate});
+    check(reading.root == roster && reading.focus == battle_hit,
+          "The painted roster should take precedence when the native roster phase is active");
+    widget(slot).focused = false;
+
+    // Random recycles the same physical hit and portrait for a different roster row.
+    set_native(roster.address + 0x568, std::int32_t{32});
+    set_native(roster.address + 0x57c, std::int32_t{32});
+    reading = reader.sample(std::array{technique, roster, team, transforms, name_plate});
+    check(reading.announcement.empty() && !reading.selection_details.empty(),
+          "While a recycled portrait still paints the old fighter, capture state without speaking a stale name");
+    widget(face).links["Brush.ResourceObject"] = other_texture;
+    reading = reader.sample(std::array{technique, roster, team, transforms, name_plate});
+    check(reading.focus == battle_hit && reading.announcement == "Gohan (Adult)",
+          "Random must announce the resulting painted fighter when the reused slot settles");
+    auto hidden_texture = make_widget("Texture2D", "QuestionTexture");
+    widget(battle_remote).links["QuestionTexture"] = hidden_texture;
+    widget(face).links["Brush.ResourceObject"] = hidden_texture;
+    reading = reader.sample(std::array{technique, roster, team, transforms, name_plate});
+    check(reading.announcement == "Unknown character",
+          "A question-mark portrait must not reveal the fighter record");
+    widget(face).visible = false;
+    reading = reader.sample(std::array{technique, roster, team, transforms, name_plate});
+    check(reading.announcement.empty(), "A hidden roster portrait must not supply an announcement");
+
+    widget(face).visible = true;
+    widget(face).links["Brush.ResourceObject"] = alias_texture;
+    set_native(roster.address + 0x550, ArrayHeader{native_hits, 2, 2});
+    set_native(roster.address + 0x568, std::int32_t{0});
+    set_native(roster.address + 0x57c, std::int32_t{-1});
+    set_native(native_hits + 0x10, battle_hit.address);
+    set_native(native_fighters, NameId{91, 0});
+    reading = reader.sample(std::array{technique, roster, team, transforms, name_plate});
+    check(reading.focus == battle_hit && reading.announcement == "Goku (Super). Super Saiyan Blue",
+          "Skip fixed-area padding while still naming a real selected slot");
 
     auto journey = make_widget("WBP_NAD_DifficultyLevel_C", "LimitBreakerDifficulty");
     rendered(journey, "Text_Title", "Difficulty");

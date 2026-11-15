@@ -326,6 +326,30 @@ ObjectRef Unreal::game_instance()
     return is_a(instance, find_class("GameInstance")) ? instance : ObjectRef{};
 }
 
+ObjectRef Unreal::game_singleton()
+{
+    const auto owner = capture(engine_);
+    if (!is_a(owner, find_class("GameEngine"))) return {};
+    constexpr std::size_t singleton_offset = 0x310; // Native Korat singleton accessor, 14245f8e0
+    const auto singleton = capture(read<Address>(owner.address + singleton_offset).value_or(0));
+    return is_a(singleton, find_class("KoratGameSingleton")) ? singleton : ObjectRef{};
+}
+
+ObjectRef Unreal::character_asset(ObjectRef data, NameId key)
+{
+    if (!api_.character_record || !key.index || !is_a(data, find_class("KoratCharacterDataAsset"))) return {};
+    Address record{};
+    if (!guarded_result(api_.character_record, record, data.address, &key)) {
+        // Leave the remaining reader available if the optional character lookup faults.
+        api_.character_record = nullptr;
+        return {};
+    }
+    constexpr std::size_t record_offset = 0x58; // USSCharacterDataAsset::CharacterDataAssetRecord
+    if (record <= record_offset) return {};
+    const auto asset = capture(record - record_offset);
+    return is_a(asset, find_class("SSCharacterDataAsset")) ? asset : ObjectRef{};
+}
+
 bool Unreal::world_context(ObjectRef object) const
 {
     return object && live(object) && object.address ==

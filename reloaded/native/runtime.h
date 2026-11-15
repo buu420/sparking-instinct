@@ -14,7 +14,7 @@ namespace sparking {
 
 class Runtime {
 public:
-    using Report = std::function<void(std::string_view)>;
+    using Report = std::function<bool(std::string_view)>;
 
     Runtime(Unreal& engine, const std::filesystem::path& mod,
             const std::filesystem::path& game_bin, Report report);
@@ -29,6 +29,7 @@ private:
     void reset();
     void sample(Clock::time_point now);
     void sample_keys(bool dispatch);
+    void capture_screen(Clock::time_point now, std::span<const ObjectRef> roots, bool items_changed, bool in_battle);
     void hotkey(int key);
     bool speak(std::string_view message, bool interrupt = true);
     void review(int direction);
@@ -52,6 +53,15 @@ private:
     Clock::time_point next_movie_{};
     Clock::time_point stats_since_{};
     Clock::time_point next_battle_speech_{};
+    Clock::time_point next_capture_{};
+    struct CapturedScreen {
+        ObjectRef root{}, focus{};
+        std::vector<ObjectRef> roots;
+        std::string announcement, details, selection;
+        bool battle{}, movie{};
+    };
+    std::optional<CapturedScreen> captured_;
+    bool capture_dirty_{};
     unsigned map_depth_{};
     unsigned polls_{};
     double total_ms_{}, peak_ms_{};

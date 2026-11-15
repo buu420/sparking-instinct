@@ -1,6 +1,7 @@
 #include "runtime.h"
 #include "../speech/prism_speech.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <thread>
@@ -16,6 +17,7 @@ struct Utterance {
 
 ScreenReading screen;
 BattleReading hud;
+std::vector<ObjectRef> viewport;
 std::vector<Utterance> speech_log;
 bool busy{};
 
@@ -37,10 +39,10 @@ void sample(Runtime& runtime)
 namespace sparking {
 bool Unreal::readable() const { return true; }
 void Unreal::clear_layouts() {}
-std::string Unreal::class_name(ObjectRef) { return {}; }
+std::string Unreal::class_name(ObjectRef ref) { return "FixtureWidget_" + std::to_string(ref.index); }
 std::string Unreal::name_of(ObjectRef) { return {}; }
 
-std::vector<ObjectRef> GameReader::viewport_roots() { return {}; }
+std::vector<ObjectRef> GameReader::viewport_roots() { return viewport; }
 void GameReader::reset() {}
 
 ScreenReading UiReader::sample(std::span<const ObjectRef>, bool, bool) { return screen; }
@@ -80,7 +82,7 @@ int main()
 {
     using namespace sparking;
     Unreal game({});
-    Runtime runtime(game, {}, {}, [](std::string_view) {});
+    Runtime runtime(game, {}, {}, [](std::string_view) { return true; });
     hud.active = true;
     hud.items = {"Your ki, 3 bars"};
     screen.root = {10, 1, 1};
@@ -128,4 +130,50 @@ int main()
     sample(runtime);
     check(speech_log.size() == 6 && speech_log.back().text == hud.guide && !speech_log.back().interrupt,
           "A follow-up charge guide cut off the current battle announcement");
+
+    screen = {};
+    hud = {};
+    viewport = {{11, 11, 1}};
+    screen.root = viewport.front();
+    screen.focus = {22, 22, 1};
+    screen.items = {"Choice text"};
+    std::vector<std::string> records;
+    Runtime capture(game, {}, {}, [&](std::string_view record) {
+        records.emplace_back(record);
+        return true;
+    });
+    const auto snapshots = [&] {
+        return std::ranges::count_if(records, [](const std::string& line) { return line.starts_with("Live screen"); });
+    };
+    const auto has = [&](std::string_view marker) {
+        return std::ranges::any_of(records, [&](const std::string& line) { return line.find(marker) != line.npos; });
+    };
+    capture.frame(true);
+    check(snapshots() == 1 && has("FixtureWidget_22") && has("Choice text") && has("Automatic menu speech: (none)"),
+          "Silent selections and their visible text must be captured with no keypress");
+    sample(capture);
+    check(snapshots() == 1, "An unchanged screen produced another live capture");
+    screen.focus = {23, 23, 1};
+    screen.announcement = "Random selected Gohan";
+    sample(capture);
+    check(snapshots() == 2 && has("FixtureWidget_23") && has("Speech: Random selected Gohan"),
+          "Selection changes and queued speech must be logged automatically");
+    screen.announcement.clear();
+    screen.focus = {24, 24, 1};
+    screen.items = {std::string(9000, 'a')};
+    sample(capture);
+    check(snapshots() == 3 && records.back().size() <= 6144 && has("[truncated]"),
+          "A large visible text field must produce a bounded capture with a truncation marker");
+
+    unsigned attempts{}, written{};
+    Runtime retry(game, {}, {}, [&](std::string_view record) {
+        if (!record.starts_with("Live screen")) return true;
+        if (++attempts == 1) return false;
+        ++written;
+        return true;
+    });
+    retry.frame(true);
+    sample(retry);
+    sample(retry);
+    check(attempts == 2 && written == 1, "Retry the unchanged snapshot after a queue rejection");
 }

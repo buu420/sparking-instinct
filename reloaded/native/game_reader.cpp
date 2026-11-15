@@ -153,6 +153,27 @@ ObjectRef GameReader::object(ObjectRef owner, std::string_view path)
     return value ? object(*value) : ObjectRef{};
 }
 
+bool GameReader::matches_object(ObjectRef owner, std::string_view path, ObjectRef target)
+{
+    if (!target) return false;
+    const auto value = property(owner, path);
+    if (!value) return false;
+    if (const auto resolved = object(*value)) return resolved == target;
+    if (value->field.kind != Kind::SoftObject || value->field.size != 0x30) return false;
+
+    // The game may resolve a temporary copy of this soft pointer when it paints a texture.
+    // Its original weak pointer can stay empty while the package and asset names still match.
+    const auto asset_path = read<std::array<NameId, 2>>(value->address + 0x10);
+    const auto subpath = read<ArrayHeader>(value->address + 0x20);
+    if (!asset_path || !(*asset_path)[0].index || !(*asset_path)[1].index || !subpath || subpath->count > 1 ||
+        subpath->count < 0 || subpath->capacity < subpath->count) return false;
+    if (subpath->count == 1 && read<wchar_t>(subpath->data) != L'\0') return false;
+    const auto asset = engine_.inspect(target);
+    const auto package = engine_.inspect(engine_.outer(target));
+    return asset && package && !package->outer &&
+           package->name == (*asset_path)[0] && asset->name == (*asset_path)[1];
+}
+
 std::optional<std::int64_t> GameReader::integer(Value value)
 {
     const auto& field = value.field;

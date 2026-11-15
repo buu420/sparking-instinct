@@ -690,13 +690,17 @@ std::string binding(const WidgetTree& tree, NodeIndex scope)
     return keys;
 }
 
-std::string texture_name(GameReader& game, const Node& image)
+ObjectRef texture_brush(GameReader& game, const Node& image)
 {
-    if (!image.painted) return {};
     // A zero-alpha brush or image has no visible glyph/portrait even when its widget is visible.
     if (game.number(image.object, "ColorAndOpacity.A").value_or(1) <= 0.001 ||
         game.number(image.object, "Brush.TintColor.SpecifiedColor.A").value_or(1) <= 0.001) return {};
-    return game.engine().name_of(game.object(image.object, "Brush.ResourceObject"));
+    return game.object(image.object, "Brush.ResourceObject");
+}
+
+std::string texture_name(GameReader& game, const Node& image)
+{
+    return image.painted ? game.engine().name_of(texture_brush(game, image)) : std::string{};
 }
 
 std::string language_value(std::string_view texture)
@@ -1294,6 +1298,106 @@ NodeIndex associated_panel(GameReader& game, const WidgetTree& tree, NodeIndex m
     return result;
 }
 
+struct RosterReading {
+    NodeIndex focus{none}, name_plate{none};
+    std::string selection, announcement;
+    std::unordered_map<NodeIndex, std::string> names;
+    bool painted_selection{};
+};
+
+std::optional<RosterReading> read_roster(GameReader& game, const WidgetTree& tree, NodeIndex scope,
+                                         bool require_roster_phase = false)
+{
+    const auto& roster = tree[scope];
+    if (!roster_grid(roster.type) || !active_menu(game, roster) ||
+        !game.engine().is_a(roster.object, game.engine().find_class("SSMenuViewScroll"))) return {};
+    constexpr std::size_t owner_limit = 4;
+    const auto controllers = game.engine().objects("SSBattleSetupController", {}, owner_limit + 1, 0, 0, false);
+    if (controllers.size() > owner_limit) return {};
+    ObjectRef owner{};
+    for (const auto controller : controllers) {
+        if (game.object(controller, "BattleSetupCharaListWidget") != roster.object) continue;
+        if (owner) return {};
+        owner = controller;
+    }
+    if (!owner) return {};
+    if (require_roster_phase) {
+        // Controller phase table 142148584 maps 0x1a and 0x1b to the ordinary roster ticks.
+        const auto current = read<std::uint8_t>(owner.address + 0xc90);
+        const auto requested = read<std::uint8_t>(owner.address + 0xcd4);
+        if (current != requested || (current != 0x1a && current != 0x1b)) return {};
+    }
+
+    // SetFocusInfo (142b51560) indexes the hit slots using the current viewport window.
+    const auto slots = read<ArrayHeader>(roster.object.address + 0x550);
+    const auto selected = read<std::int32_t>(roster.object.address + 0x568);
+    const auto count = read<std::int32_t>(roster.object.address + 0x574);
+    const auto first = read<std::int32_t>(roster.object.address + 0x57c);
+    // The controller's ChangeCharaIconButton (142119910) reads its FName row at data index modulo array size.
+    const auto characters = read<ArrayHeader>(owner.address + 0xe50);
+    if (!slots || !slots->data || slots->count <= 0 || slots->count > 256 || slots->capacity < slots->count ||
+        !selected || !first || !count || *first < -slots->count || *first > *count || *count <= 0 || *count > 100000 ||
+        !characters || !characters->data || characters->count <= 0 || characters->count > 1024 ||
+        characters->capacity < characters->count) return {};
+
+    RosterReading result;
+    result.name_plate = tree.locate(game.object(owner, "CharaNameWidget")).value_or(none);
+    result.selection = "Roster data index " + std::to_string(*selected) + ", first attached index " + std::to_string(*first);
+    const auto data = game.object(game.engine().game_singleton(), "CharacterData");
+    const auto icon_type = game.engine().find_class("SSBattleSetupNewCharaIcon");
+    constexpr auto player_one_portrait = "CharacterDataAssetRecord.UIAssets.FaceChipCharacterSelect1P"sv;
+    constexpr auto player_two_portrait = "CharacterDataAssetRecord.UIAssets.FaceChipCharacterSelect2P"sv;
+    for (std::int32_t slot = 0; slot < slots->count && *first + slot < *count; ++slot) {
+        const auto index = *first + slot;
+        if (index < 0) continue; // Fixed-area padding has no corresponding character row.
+        const auto address = read<Address>(slots->data + static_cast<std::size_t>(slot) * 0x10).value_or(0);
+        const auto hit = tree.locate(game.engine().capture(address));
+        if (!hit || !tree.within(*hit, scope) || !hit_target(tree[*hit].type)) continue;
+        if (index == *selected) result.focus = *hit;
+
+        const auto portrait = tree.locate(game.object(tree[*hit].object, "RemoteButton"));
+        if (!portrait || !tree.within(*portrait, scope) || !tree[*portrait].visible ||
+            !game.engine().is_a(tree[*portrait].object, icon_type)) continue;
+        const auto icon = tree[*portrait].object;
+        const auto face_name = game.text(icon, "FaceImageWidgetName");
+        if (face_name.empty()) continue;
+        const auto face = unique_widget(tree, *portrait, [&](const Node& leaf) {
+            return leaf.name == face_name && image_class(leaf.type);
+        });
+        if (!face || !tree.painted(*face)) continue;
+        const auto brush = texture_brush(game, tree[*face]);
+        if (!brush) continue;
+
+        std::string label;
+        const auto lock = unique_widget(tree, *portrait, [](const Node& leaf) {
+            return leaf.name == "IMG_Face_Base08_Lock" && leaf.painted.has_value();
+        });
+        if (lock && texture_name(game, tree[*lock]) == "T_UI_BS_IconFrame08") label = "Locked character";
+        else if (brush == game.object(icon, "EmptyTexture") || brush == game.object(icon, "FreeTexture")) label = "Empty slot";
+        else if (brush == game.object(icon, "QuestionTexture")) label = "Unknown character";
+        else {
+            const auto row = static_cast<std::size_t>(index % characters->count);
+            const auto key = read<NameId>(characters->data + row * sizeof(NameId));
+            const auto fighter = key ? game.engine().character_asset(data, *key) : ObjectRef{};
+            if (fighter && (game.matches_object(fighter, player_one_portrait, brush) ||
+                            game.matches_object(fighter, player_two_portrait, brush))) {
+                auto name = read_ui_text(game.text(fighter, "CharacterDataAssetRecord.NameInfo.ShortName"));
+                if (name.empty()) name = read_ui_text(game.text(fighter, "CharacterDataAssetRecord.NameInfo.FullName"));
+                if (!name.empty()) label = ui_detail::compose_portrait_name(std::move(name),
+                    read_ui_text(game.text(fighter, "CharacterDataAssetRecord.NameInfo.TitleName")));
+            }
+        }
+        if (index == *selected) {
+            result.painted_selection = true;
+            result.selection += ", painted portrait " + game.engine().name_of(brush);
+            result.announcement = label;
+        }
+        if (!label.empty()) result.names.emplace(*portrait, std::move(label));
+    }
+    if (result.announcement.empty()) result.selection += ", name unconfirmed";
+    return result;
+}
+
 std::string episode_overview_label(GameReader& game, const WidgetTree& tree, NodeIndex outline, NodeIndex icon,
                                    NodeIndex chart, std::unordered_set<NodeIndex>& consumed)
 {
@@ -1625,7 +1729,27 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic,
     ScreenReading result;
     const auto modal = modal_surface(game_, tree);
     auto focus = focused_widget(game_, tree, modal);
-    const auto surface = main_surface(game_, tree, focus, modal);
+    auto surface = main_surface(game_, tree, focus, modal);
+    std::optional<RosterReading> roster;
+    if (surface != none && roster_grid(tree[surface].type)) {
+        roster = read_roster(game_, tree, surface);
+    } else if (surface != none && character_grid(tree[surface].type)) {
+        // Slate may retain focus on the team during the native roster handoff.
+        const auto grid = unique_surface(tree, [](const Node& node) { return roster_grid(node.type); });
+        if (grid != none) {
+            auto current = read_roster(game_, tree, grid, true);
+            if (current && current->painted_selection) {
+                surface = grid;
+                roster = std::move(current);
+            }
+        }
+    }
+    if (roster) {
+        focus = roster->focus;
+        result.selection_details = roster->selection;
+    } else if (surface != none && roster_grid(tree[surface].type)) {
+        result.selection_details = "Native roster selection unavailable.";
+    }
     const bool decision = modal != none && episode_decision(tree[modal].type);
     const bool paused_story = modal != none && story_pause(tree[modal].type);
     const bool overview_surface_selected = surface != none && (episode_chart(tree[surface].type) ||
@@ -1661,7 +1785,11 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic,
     std::unordered_set<NodeIndex> consumed;
     collect_subtitle(game_, tree, result, consumed, modal);
     collect_tutorial(game_, tree, result, consumed, modal);
-    if (episode_overview_open) {
+    if (roster) {
+        result.announcement = roster->announcement;
+        if (roster->name_plate != none)
+            consume_text(tree, roster->name_plate, consumed, {"Text_Name", "Text_Name_Plus"});
+    } else if (episode_overview_open) {
         const auto chart = episode_chart(tree[surface].type) ? surface : none;
         result.announcement = episode_overview_label(game_, tree, outline, focus, chart, consumed);
     } else if (decision) result.announcement = episode_decision_label(game_, tree, modal, focus);
@@ -1703,11 +1831,11 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic,
         } else if (episode_details(current.type)) {
             result.announcement = visible_lines(tree, surface, consumed);
         } else if (episode_roster(current.type)) {
-            auto roster = named_text(tree, surface, "CaracterText_0");
-            append(roster, named_text(tree, surface, "TXT_ChapterTitle"));
-            append(roster, result.announcement);
-            append(roster, named_text(tree, surface, "TXT_main"));
-            result.announcement = std::move(roster);
+            auto character = named_text(tree, surface, "CaracterText_0");
+            append(character, named_text(tree, surface, "TXT_ChapterTitle"));
+            append(character, result.announcement);
+            append(character, named_text(tree, surface, "TXT_main"));
+            result.announcement = std::move(character);
         } else if (focus != none) {
             review_scope = tournament_viewer(game_, tree, focus);
             if (review_scope != none && !result.announcement.empty())
@@ -1727,7 +1855,7 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic,
                 result.announcement = visible_lines(tree, surface, consumed);
         }
 
-        if (result.announcement.empty() && character_grid(current.type) &&
+        if (!roster && result.announcement.empty() && character_grid(current.type) &&
             (focus != none || active_menu(game_, current))) {
             const auto plate = associated_panel(game_, tree, surface, "SSBattleSetupController",
                                                 "BattleSetupCharaListWidget", "CharaNameWidget");
@@ -1834,7 +1962,12 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic,
             const auto face = unique_widget(tree, i, [](const Node& leaf) {
                 return leaf.name == "IMG_Face_Main" && leaf.painted;
             });
-            put_item(items, tree, face.value_or(i), portrait_label(game_, tree, i));
+            if (roster && tree.within(i, surface)) {
+                const auto label = roster->names.find(i);
+                if (label != roster->names.end()) put_item(items, tree, face.value_or(i), label->second);
+            } else {
+                put_item(items, tree, face.value_or(i), portrait_label(game_, tree, i));
+            }
         }
         if (!node.text.empty() && !consumed.contains(i)) put_item(items, tree, i, node.text);
     }

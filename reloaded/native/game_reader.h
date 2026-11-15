@@ -17,6 +17,7 @@ public:
     void reset();
 
     ObjectRef object(ObjectRef owner, std::string_view path);
+    bool matches_object(ObjectRef owner, std::string_view path, ObjectRef target);
     std::optional<double> number(ObjectRef owner, std::string_view path);
     std::optional<std::int64_t> integer(ObjectRef owner, std::string_view path);
     std::optional<bool> boolean(ObjectRef owner, std::string_view path);

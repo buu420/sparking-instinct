@@ -89,6 +89,7 @@ struct EngineApi {
         std::array<std::int32_t, 2>* result, const std::uint32_t* handle){};
     void (*destroy_text)(Address property, Address storage){};
     void (*free)(Address allocation){};
+    Address (*character_record)(Address data, const NameId* key){};
 };
 
 bool guarded_copy(void* destination, Address source, std::size_t bytes) noexcept;
@@ -124,6 +125,8 @@ public:
     bool is_a(ObjectRef object, ObjectRef type) const;
     bool is_class(ObjectRef object) const;
     ObjectRef game_instance();
+    ObjectRef game_singleton();
+    ObjectRef character_asset(ObjectRef data, NameId key);
     ObjectRef find(std::string_view path);
     ObjectRef find_class(std::string_view name);
     std::vector<ObjectRef> objects(std::string_view type, std::string_view short_name,

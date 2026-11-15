@@ -1,4 +1,4 @@
-Sparking Instinct for DRAGON BALL: Sparking! ZERO, version 0.2.4 beta
+Sparking Instinct for DRAGON BALL: Sparking! ZERO, version 0.2.5 beta
 
 Buu420 made both movie audio descriptions and maintains this native Reloaded II mod.
 

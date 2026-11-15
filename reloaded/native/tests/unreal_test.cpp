@@ -39,12 +39,12 @@ static_assert(sizeof(TestSlot) == 24);
 
 using ObjectBytes = std::array<std::byte, 0x300>;
 using PropertyBytes = std::array<std::byte, 0x90>;
-std::array<TestSlot, 18> slots{};
+std::array<TestSlot, 21> slots{};
 std::array<Address, 1> chunks{address(slots)};
 std::array<std::byte, 0xc0> object_array{};
 std::array<std::byte, 0x80> name_pool{};
 std::array<std::byte, 0x800> names{};
-std::array<ObjectBytes, 18> records{};
+std::array<ObjectBytes, 21> records{};
 Address object_class{};
 std::uint8_t name_ready = 1;
 std::uint8_t collecting{};
@@ -342,6 +342,29 @@ int main()
     const auto game_ref = engine.capture(address(records[6]));
     check(engine.world_context(game_ref) && engine.game_instance() == game_ref, "world-context identity missing");
     GameReader reader(engine);
+
+    const auto package_name = name_at(520, "/Game/Fixture/Face");
+    const auto texture_name = name_at(550, "Face");
+    record(18, 2, package_name);
+    record(19, 2, texture_name, 18);
+    record(20, 2, texture_name, 3);
+    const auto portrait = engine.capture(address(records[19]));
+    const auto different_package = engine.capture(address(records[20]));
+    std::array<std::byte, 0x40> soft_object_kind{};
+    set(soft_object_kind, 0, name_at(560, "SoftObjectProperty"));
+    PropertyBytes soft_object{};
+    property(soft_object, address(soft_object_kind), name_at(580, "Portrait"), 0x98, 0x30, 0);
+    set(records[4], 0x50, address(soft_object));
+    set(records[4], 0x58, std::int32_t{0xc8});
+    set(records[6], 0xa8, package_name);
+    set(records[6], 0xb0, texture_name);
+    engine.clear_layouts();
+    check(reader.matches_object(game_ref, "Portrait", portrait), "Cold top-level soft texture reference rejected");
+    check(!reader.matches_object(game_ref, "Portrait", different_package), "Same-named texture from another package matched");
+    const wchar_t subobject[] = L"Nested";
+    set(records[6], 0xb8, ArrayHeader{reinterpret_cast<Address>(subobject), 7, 7});
+    check(!reader.matches_object(game_ref, "Portrait", portrait), "Nested soft reference matched a top-level texture");
+
     const auto roots = reader.viewport_roots();
     check(roots.size() == 1 && roots.front().address == address(records[15]), "detached or unrelated widget leaked");
     check(freed == 2, "validated UMG call did not free exactly once");
