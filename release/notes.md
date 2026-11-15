@@ -1,11 +1,9 @@
 Sparking Instinct is a screen reader mod for **DRAGON BALL: Sparking! ZERO**. This beta includes the native Reloaded II reader, Prism, and Buu420's audio descriptions for the opening and post-tutorial movie.
 
-Version 0.2.3 improves speech in Episode Battle, Bonus Battles, Shop and Customize, character move review, and Limit-Breaker Journey.
+Version 0.2.4 fixes character selection in single-character tournament modes and the RT episode menu in Episode Battle.
 
-- Episode Battle reads the highlighted story answer, including the choice to work with Piccolo. The story pause menu reads the active pause options. On the RT map, the reader uses the selected episode's visible outline when its title is displayed as question marks.
-- Bonus Battles reads the selected battle and its visible tags. The Shop and Customize landing screen names the highlighted tile.
-- Technique Information review stays on the visible move panel when it has focus.
-- Limit-Breaker Journey reads supported menu text and the displayed SP of the selected battle spot. F6 includes visible map and status text.
+- **Tournament roster.** After you open the character grid from your team slot, the reader announces the highlighted character and form. F6 can still review the visible technique text.
+- **Episode Battle.** The RT menu reads the selected episode and area. It includes the displayed chapter number when it matches the selected episode. F6 reviews the episode's visible description.
 
 The beta supports **Windows x64, Steam build 24953175 (game version 3022.021.003.012.015)**.
 
@@ -18,7 +16,7 @@ F6 reads the screen. F7 and F8 review items. F9 switches between reading all vis
 
 ## What to test
 
-These changes passed offline tests. In the game, please check the RT map while switching areas and moving to an unlocked Sparking path. Try the story choice and the Start menu inside an episode. Bonus Battles details, the screens inside Shop and Customize, and destinations and events in Limit-Breaker Journey also need live testing.
+These changes passed offline tests. In a one-character tournament, press A on your team slot and check several fighters. In Episode Battle, open the Episode Map, press RT, and check an episode while moving within an area and after switching areas with LB or RB. Try an unlocked Sparking path if available.
 
 For a bug report, press F4 on the affected screen and send `SparkingZeroAccess.Reloaded.log` from `SparkingZeroAccess-Reloaded\Logs` inside the game folder. Include the mode, input, and what you expected to hear. Use F5 if you need to capture a sequence of announcements.
 

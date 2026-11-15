@@ -209,6 +209,12 @@ int main()
     set(records[4], 0x50, address(cost));
     set(records[4], 0x58, std::int32_t{0x100});
 
+    std::array<std::byte, 0x150> episode_selection{};
+    const NameId episode{301, 2};
+    set(episode_selection, 0x10c, episode);
+    set(episode_selection, 0x13c, episode);
+    auto selection_context = address(episode_selection);
+
     EngineApi api{};
     api.object_array = address(object_array);
     api.name_pool = address(name_pool);
@@ -226,7 +232,14 @@ int main()
     api.text_string = text_string;
     api.destroy_text = destroy_text;
     api.text_vtable = address(text_vtable);
+    api.episode_selection_slot = address(selection_context);
     Unreal engine(api);
+    check(engine.episode_cursors_match(episode), "same live episode heading rejected");
+    check(!engine.episode_cursors_match({301, 0}), "mismatched episode name instance accepted");
+    set(episode_selection, 0x13c, NameId{302, 0});
+    check(!engine.episode_cursors_match(episode), "ordinary chart chapter accepted for another RT episode");
+    selection_context = 0;
+    check(!engine.episode_cursors_match(episode), "chapter accepted without a native selection context");
     check(engine.readable(), "initial valid engine layout rejected");
     check(engine.name({fixture_name.index, 7}) == "Fixture_6", "FName number is off by one");
     auto object = engine.capture(address(records[6]));

@@ -289,10 +289,14 @@ bool control_panel(std::string_view name, std::string_view type)
     return type == "WBP_OBJ_SL_Content_C" && (name == "Content_1P" || name == "Content_2P");
 }
 
+bool roster_grid(std::string_view type)
+{
+    return type.starts_with("WBP_GRP_BS_CharaList_");
+}
+
 bool character_grid(std::string_view type)
 {
-    return type.starts_with("WBP_GRP_BS_CharaList_") ||
-           type.starts_with("WBP_GRP_BS_Top_00_") ||
+    return roster_grid(type) || type.starts_with("WBP_GRP_BS_Top_00_") ||
            type.starts_with("WBP_GRP_BS_ChList_TeamList_");
 }
 
@@ -304,6 +308,11 @@ bool episode_roster(std::string_view type)
 bool episode_chart(std::string_view type)
 {
     return type == "WBP_GRP_AI_ChartTitle_C";
+}
+
+bool episode_map(std::string_view type)
+{
+    return type.starts_with("WBP_GRP_AI_Map_");
 }
 
 bool episode_details(std::string_view type)
@@ -395,7 +404,7 @@ bool training_menu(std::string_view type)
 
 bool episode_screen(std::string_view type)
 {
-    return episode_roster(type) || episode_details(type) || type.starts_with("WBP_GRP_AI_Map_") ||
+    return episode_roster(type) || episode_details(type) || episode_map(type) ||
            type.starts_with("WBP_GRP_AI_Chart") || type == "WBP_GRP_AI_Outline_C" ||
            type.starts_with("WBP_GRP_AI_DecisionBranch");
 }
@@ -933,8 +942,8 @@ bool passive_item_surface(std::string_view type)
 {
     return type.starts_with("WBP_GRP_GuideSet") || type.starts_with("WBP_GRP_TTR_Opt_") ||
            type.starts_with("WBP_Option_Tips") || type == "WBP_MainMenu_Base_TextSub_C" ||
-           type.starts_with("WBP_GRP_BS_CharaNameSet") || tutorial_root(type) ||
-           root_is_cinematic(type) || type.starts_with("WBP_CMN_Waiting");
+           type.starts_with("WBP_GRP_BS_CharaNameSet") || technique_panel(type) ||
+           tutorial_root(type) || root_is_cinematic(type) || type.starts_with("WBP_CMN_Waiting");
 }
 
 NodeIndex episode_decision_focus(GameReader& game, const WidgetTree& tree, NodeIndex dialog, NodeIndex focus)
@@ -1030,7 +1039,7 @@ std::string episode_chart_text(const WidgetTree& tree, NodeIndex chart)
 NodeIndex episode_overview(GameReader& game, const WidgetTree& tree)
 {
     return unique_surface(tree, [&](const Node& node) {
-        return node.type.starts_with("WBP_GRP_AI_Map_") && node.visible &&
+        return episode_map(node.type) && node.visible &&
             game.engine().is_a(node.object, game.engine().find_class("SSDragonAdventureIFCTMapManager"));
     });
 }
@@ -1047,19 +1056,6 @@ NodeIndex episode_overview_focus(GameReader& game, const WidgetTree& tree, NodeI
         return tree.painted(index).has_value();
     });
     return icon.value_or(none);
-}
-
-std::string episode_overview_outline(const WidgetTree& tree)
-{
-    const auto outline = unique_surface(tree, [](const Node& node) {
-        return node.type == "WBP_OBJ_AI_Map_Outline_C" && node.visible;
-    });
-    if (outline == none) return {};
-    if (auto summary = named_text(tree, outline, "TXT_Outline"); !summary.empty()) return summary;
-    const auto text = unique_widget(tree, outline, [](const Node& node) {
-        return (node.name == "TXT_Outline" || node.name.starts_with("TXT_Outline_")) && !node.text.empty();
-    });
-    return text ? tree[*text].text : std::string{};
 }
 
 void collect_subtitle(GameReader& game, const WidgetTree& tree, ScreenReading& result,
@@ -1298,6 +1294,34 @@ NodeIndex associated_panel(GameReader& game, const WidgetTree& tree, NodeIndex m
     return result;
 }
 
+std::string episode_overview_label(GameReader& game, const WidgetTree& tree, NodeIndex outline, NodeIndex icon,
+                                   NodeIndex chart, std::unordered_set<NodeIndex>& consumed)
+{
+    // The RT outline widget owns the selected title. Its TXT_Main is the description.
+    auto title = named_text(tree, outline, "TXT_Title");
+    if (title.empty()) return {};
+    consume_text(tree, outline, consumed, {"TXT_Title"});
+    if (icon == none) return title;
+
+    const auto island = tree.ancestor(icon, [&](const Node& node) {
+        return node.type.starts_with("WBP_OBJ_AI_Map_Block_") &&
+               game.engine().is_a(node.object, game.engine().find_class("SSDragonAdventureIFCTMapIslandWidget"));
+    });
+    const auto area = island == none ? std::string{} : named_text(tree, island, "TXT_ChapterTitle");
+    if (!area.empty()) consume_text(tree, island, consumed, {"TXT_ChapterTitle"});
+
+    // The chart chapter applies only when both native cursors select the painted icon.
+    constexpr std::size_t event_block_name = 0x440; // USSDragonAdventureIFCTMapIconWidget.EventBlockName
+    const auto episode = read<NameId>(tree[icon].object.address + event_block_name);
+    if (chart != none && episode && game.engine().episode_cursors_match(*episode)) {
+        const bool matching_paint = area.empty() ? named_text(tree, chart, "Text_EventTitle") == title :
+            named_text(tree, chart, "Text_ScenarioTitle_1") == area;
+        if (matching_paint) append(title, named_text(tree, chart, "Text_Chapter"));
+    }
+    append(title, area);
+    return title;
+}
+
 NodeIndex tournament_viewer(GameReader& game, const WidgetTree& tree, NodeIndex selection)
 {
     const auto list = tree.ancestor(selection, [](const Node& node) { return node.type == "WBP_TBL_Menu_C"; });
@@ -1389,6 +1413,17 @@ NodeIndex main_surface(GameReader& game, const WidgetTree& tree, NodeIndex focus
         return owning != none ? owning : tree[focus].root;
     }
     if (const auto stage = stage_surface(game, tree); stage != none) return stage;
+
+    const auto technique = unique_surface(tree, [&](const Node& node) {
+        return technique_panel(node.type) && active_menu(game, node);
+    });
+    if (technique != none) return technique;
+
+    // A controller can keep the team slots and technique panel on screen while the roster owns navigation.
+    const auto roster = unique_surface(tree, [&](const Node& node) {
+        return roster_grid(node.type) && active_menu(game, node);
+    });
+    if (roster != none) return roster;
     NodeIndex dialog = none;
     NodeIndex most_lines = none;
     std::size_t maximum = 0;
@@ -1593,7 +1628,12 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic,
     const auto surface = main_surface(game_, tree, focus, modal);
     const bool decision = modal != none && episode_decision(tree[modal].type);
     const bool paused_story = modal != none && story_pause(tree[modal].type);
-    const auto overview = surface != none && episode_chart(tree[surface].type) ? episode_overview(game_, tree) : none;
+    const bool overview_surface_selected = surface != none && (episode_chart(tree[surface].type) ||
+        episode_map(tree[surface].type) || tree[surface].type == "WBP_OBJ_AI_Map_Outline_C");
+    const auto overview = overview_surface_selected ? episode_overview(game_, tree) : none;
+    const auto outline = overview == none ? none : associated_panel(game_, tree, overview,
+        "SSDragonAdventureIFChartController", "StoryMapWidget", "MapOutlineWidget");
+    const bool episode_overview_open = outline != none && tree[outline].type == "WBP_OBJ_AI_Map_Outline_C";
     const bool journey_map = surface != none && tree[surface].type == "WBP_NAD_Map_C";
     if (decision) focus = episode_decision_focus(game_, tree, modal, focus);
     auto map_spot = none;
@@ -1602,7 +1642,7 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic,
         if (map_spot != none && tree.within(map_spot, surface)) focus = map_spot;
         else map_spot = none;
     }
-    if (overview != none) {
+    if (episode_overview_open) {
         focus = episode_overview_focus(game_, tree, overview);
     } else if (surface != none && (episode_chart(tree[surface].type) || episode_details(tree[surface].type)) &&
                focus != none && !tree.within(focus, surface)) {
@@ -1615,13 +1655,16 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic,
         if (i == surface || (node.parent != none && !overview_surface(node.type) && !raised_dialog(node.type))) continue;
         if (node.visible) result.visible_surfaces.push_back(node.type + " (" + node.name + ")");
     }
-    if (surface != none) result.root = tree[overview == none ? surface : overview].object;
+    if (surface != none) result.root = tree[episode_overview_open ? overview : surface].object;
     if (focus != none) result.focus = tree[focus].object;
     const auto side_changer = game_.engine().find_class("SSMenuButtonSideChanger");
     std::unordered_set<NodeIndex> consumed;
     collect_subtitle(game_, tree, result, consumed, modal);
     collect_tutorial(game_, tree, result, consumed, modal);
-    if (decision) result.announcement = episode_decision_label(game_, tree, modal, focus);
+    if (episode_overview_open) {
+        const auto chart = episode_chart(tree[surface].type) ? surface : none;
+        result.announcement = episode_overview_label(game_, tree, outline, focus, chart, consumed);
+    } else if (decision) result.announcement = episode_decision_label(game_, tree, modal, focus);
     else if (map_spot != none) result.announcement = journey_spot_label(tree, map_spot, consumed);
     else if (!journey_map && focus != none && !consumed.contains(focus))
         result.announcement = focused_label(game_, tree, focus, side_changer);
@@ -1647,7 +1690,7 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic,
         if (!title.empty() && !ambiguous) result.announcement = std::move(title);
     }
     auto review_scope = none;
-    if (surface != none) {
+    if (surface != none && !episode_overview_open) {
         const auto& current = tree[surface];
         if (paused_story) {
             if (result.announcement.empty()) result.announcement = visible_lines(tree, modal, consumed);
@@ -1657,11 +1700,6 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic,
             append(result.announcement, selection);
         } else if (episode_chart(current.type)) {
             result.announcement = episode_chart_text(tree, surface);
-            if (overview != none) {
-                const auto title = named_text(tree, surface, "Text_EventTitle");
-                if (title.empty() || title == "???" || title == "？？？")
-                    append(result.announcement, episode_overview_outline(tree));
-            }
         } else if (episode_details(current.type)) {
             result.announcement = visible_lines(tree, surface, consumed);
         } else if (episode_roster(current.type)) {
@@ -1694,8 +1732,8 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic,
             const auto plate = associated_panel(game_, tree, surface, "SSBattleSetupController",
                                                 "BattleSetupCharaListWidget", "CharaNameWidget");
             if (plate != none) {
-                result.announcement = named_text(tree, plate, "Text_Name");
-                append(result.announcement, named_text(tree, plate, "Text_Name_Plus"));
+                result.announcement = ui_detail::compose_portrait_name(
+                    named_text(tree, plate, "Text_Name"), named_text(tree, plate, "Text_Name_Plus"));
             }
         }
     }
@@ -1732,7 +1770,7 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic,
     NodeIndex reviewed_focus = none;
     auto focus_review = result.announcement;
     append(focus_review, result.control_details);
-    const bool panel_review = surface != none && (decision || paused_story || journey_map ||
+    const bool panel_review = surface != none && (episode_overview_open || decision || paused_story || journey_map ||
         technique_panel(tree[surface].type) || episode_chart(tree[surface].type) || episode_details(tree[surface].type));
     if (!focus_review.empty() && focus != none && !panel_review) {
         const auto visual = related_hit_label(game_, tree, focus);
@@ -1751,6 +1789,8 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic,
         const auto& node = tree[i];
         if ((modal != none && !tree.within(i, modal)) ||
             (reviewed_focus != none && review_scope != none && tree.within(i, review_scope))) continue;
+        if (episode_overview_open && !tree.within(i, overview) && !tree.within(i, outline) &&
+            !operation_guide(tree[node.root].type)) continue;
         if (surface != none && (journey_map || technique_panel(tree[surface].type) || episode_details(tree[surface].type)) &&
             !tree.within(i, surface) && !operation_guide(tree[node.root].type)) {
             if (!journey_map || tree.ancestor(i, [](const Node& parent) {
@@ -1806,7 +1846,7 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic,
     const auto remember = [&](const std::string& text) {
         if (!text.empty() && seen.insert(text).second) result.items.push_back(text);
     };
-    if (reviewed_focus == none && !panel_review) remember(focus_review);
+    if (episode_overview_open || (reviewed_focus == none && !panel_review)) remember(focus_review);
     for (const auto& item : items) remember(item.text);
     remember(result.tutorial);
     for (const auto& subtitle : result.subtitles) remember(subtitle.text);

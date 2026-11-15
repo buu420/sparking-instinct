@@ -68,6 +68,8 @@ EngineApi engine_api(Address base)
     api.text_vtable = base + 0x6e2b5e0;
     api.code_begin = base + 0x1000;
     api.code_end = base + 0x6234997;
+    // The chart and RT overview use different keys in this build's selection context.
+    api.episode_selection_slot = base + 0x870d9e0;
     api.find = reinterpret_cast<decltype(api.find)>(base + find_rva);
     api.objects = reinterpret_cast<decltype(api.objects)>(base + get_objects_rva);
     api.serial = reinterpret_cast<decltype(api.serial)>(base + weak_serial_rva);

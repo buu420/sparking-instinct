@@ -137,6 +137,16 @@ std::optional<Unreal::Slot> Unreal::slot(std::int32_t index) const
     return read<Slot>(*chunk + (index % objects_per_chunk) * sizeof(Slot));
 }
 
+bool Unreal::episode_cursors_match(NameId painted_episode) const
+{
+    if (!api_.episode_selection_slot || !painted_episode.index) return false;
+    const auto selection = read<Address>(api_.episode_selection_slot).value_or(0);
+    if (!selection) return false;
+    // Native chart and RT caption refresh use these separate FName keys.
+    return read<NameId>(selection + 0x10c) == painted_episode &&
+           read<NameId>(selection + 0x13c) == painted_episode;
+}
+
 bool Unreal::readable() const
 {
     return !faulted_ && read<std::uint8_t>(api_.name_ready).value_or(0) == 1 &&

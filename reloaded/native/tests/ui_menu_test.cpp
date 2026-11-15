@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <unordered_map>
 
@@ -15,11 +16,13 @@ struct Widget {
     std::unordered_map<std::string, ObjectRef> links;
     WidgetBounds bounds{0, 0, 800, 600};
     bool visible{true}, focused{}, active{true};
+    NameId episode_key{};
     std::uint8_t decision_direction{}, selected_map_icon{};
 };
 
 std::vector<Widget> widgets;
 std::vector<std::string> classes;
+NameId chart_cursor{}, map_cursor{};
 
 Widget& widget(ObjectRef object) { return widgets.at(object.index); }
 
@@ -62,6 +65,13 @@ bool guarded_copy(void* destination, Address source, std::size_t bytes) noexcept
 {
     constexpr Address direction_offset = 0x501;
     constexpr Address icon_offset = 0x448;
+    constexpr Address icon_key_offset = 0x440;
+    if (bytes == sizeof(NameId) && source > icon_key_offset) {
+        const auto index = source - icon_key_offset - 1;
+        if (index >= widgets.size() || widgets[index].type != "WBP_OBJ_AI_Map_Piece_00_C") return false;
+        std::memcpy(destination, &widgets[index].episode_key, bytes);
+        return true;
+    }
     if (bytes != sizeof(std::uint8_t)) return false;
     if (source > direction_offset) {
         const auto index = source - direction_offset - 1;
@@ -75,6 +85,11 @@ bool guarded_copy(void* destination, Address source, std::size_t bytes) noexcept
     if (index >= widgets.size() || widgets[index].type != "WBP_OBJ_AI_Map_Piece_00_C") return false;
     *static_cast<std::uint8_t*>(destination) = widgets[index].selected_map_icon;
     return true;
+}
+
+bool Unreal::episode_cursors_match(NameId painted_episode) const
+{
+    return painted_episode.index && painted_episode == chart_cursor && painted_episode == map_cursor;
 }
 
 bool Unreal::live(ObjectRef owner) const
@@ -133,8 +148,19 @@ bool Unreal::is_a(ObjectRef owner, ObjectRef type) const
     return owner && type &&
         (widget(owner).type == classes.at(type.index) || widget(owner).base == classes.at(type.index));
 }
-std::vector<ObjectRef> Unreal::objects(std::string_view, std::string_view, std::size_t, std::uint32_t,
-                                       std::uint32_t, bool) { return {}; }
+std::vector<ObjectRef> Unreal::objects(std::string_view type, std::string_view name, std::size_t limit,
+                                       std::uint32_t, std::uint32_t, bool exact)
+{
+    std::vector<ObjectRef> matches;
+    for (std::size_t i = 0; i < widgets.size(); ++i) {
+        const auto& entry = widgets[i];
+        if (entry.type != type && (exact || entry.base != type)) continue;
+        if (!name.empty() && entry.name != name) continue;
+        matches.push_back({i + 1, static_cast<int>(i), 1});
+        if (limit && matches.size() == limit) break;
+    }
+    return matches;
+}
 }
 
 int main()
@@ -184,9 +210,11 @@ int main()
     auto next_move = make_widget("WBP_OBJ_BS_SetSkillBTN_C", "SkillBTN_Ult_0", technique);
     rendered(next_move, "caption", "Spirit Bomb", 90);
     auto roster = make_widget("WBP_GRP_BS_CharaList_DP_C", "Roster");
+    widget(roster).base = "SSMenuViewScroll";
     rendered(roster, "Others", "Super Vegeta", 95);
     auto transforms = make_widget("WBP_GRP_BS_ModeList_DP_C", "TransformList");
     rendered(transforms, "Text_Title_1", "Transformation Information", 50);
+    widget(technique).focused = true;
     reading = reader.sample(std::array{technique, roster, transforms});
     check(reading.root == technique && reading.announcement.find("Solar Flare") != std::string::npos &&
           std::ranges::find(reading.items, "Spirit Bomb") != reading.items.end(),
@@ -194,6 +222,41 @@ int main()
     check(std::ranges::find(reading.items, "Super Vegeta") == reading.items.end() &&
           std::ranges::find(reading.items, "Transformation Information") == reading.items.end(),
           "Technique Information review should exclude the background roster and transformations");
+
+    auto team = make_widget("WBP_GRP_BS_Top_00_1P_C", "SingleTournamentSlot");
+    auto slot = make_widget("WBP_OBJ_Common_HitButton_C", "WBP_OBJ_Common_HitButton_0", team);
+    rendered(slot, "caption", "Already assigned", 120);
+    auto name_plate = make_widget("WBP_GRP_BS_CharaNameSet_DP_C", "CharacterNamePlate");
+    widget(name_plate).base = "SSBattleSetupNameList";
+    auto name = rendered(name_plate, "Text_Name", "Goku (Super)", 35);
+    auto form = rendered(name_plate, "Text_Name_Plus", "Super Saiyan", 55);
+    auto setup = make_widget("SSBattleSetupController", "BattleSetup");
+    widget(setup).links = {{"BattleSetupCharaListWidget", roster}, {"CharaNameWidget", name_plate},
+                           {"SkillListWidget", technique}, {"TransformWidget", transforms}};
+    widget(technique).focused = false;
+    widget(technique).active = false;
+    widget(transforms).active = false;
+    reading = reader.sample(std::array{technique, roster, team, transforms, name_plate});
+    check(reading.root == roster && reading.announcement == "Goku (Super). Super Saiyan",
+          "An active tournament roster with no Slate focus must read its own visible name plate");
+    check(std::ranges::find(reading.items, "Solar Flare") != reading.items.end(),
+          "F6 can still review the visible passive technique text");
+    widget(name).text = "Android 17";
+    widget(form).visible = false;
+    reading = reader.sample(std::array{technique, roster, team, transforms, name_plate});
+    check(reading.announcement == "Android 17",
+          "Moving the tournament cursor must replace the previous character and form");
+    widget(technique).active = true;
+    reading = reader.sample(std::array{technique, roster, team, transforms, name_plate});
+    check(reading.root == technique && reading.announcement.find("Solar Flare") != std::string::npos,
+          "An input-active technique panel must keep its own speech and review");
+
+    widget(technique).active = false;
+    widget(roster).active = false;
+    widget(slot).focused = true;
+    reading = reader.sample(std::array{technique, roster, team, transforms, name_plate});
+    check(reading.root == team && reading.announcement == "Already assigned",
+          "Before opening the roster, the filled team slot must still announce its own text");
 
     auto journey = make_widget("WBP_NAD_DifficultyLevel_C", "LimitBreakerDifficulty");
     rendered(journey, "Text_Title", "Difficulty");
@@ -297,36 +360,65 @@ int main()
 
     auto map = make_widget("WBP_GRP_AI_Map_0000_40_C", "StoryMap");
     widget(map).base = "SSDragonAdventureIFCTMapManager";
-    auto first_icon = make_widget("WBP_OBJ_AI_Map_Piece_00_C", "FirstEpisodeIcon", map);
-    auto next_icon = make_widget("WBP_OBJ_AI_Map_Piece_00_C", "NextEpisodeIcon", map);
+    auto island = make_widget("WBP_OBJ_AI_Map_Block_0000_40_00_C", "MapIsland", map);
+    widget(island).base = "SSDragonAdventureIFCTMapIslandWidget";
+    auto area = rendered(island, "TXT_ChapterTitle", "Universe Survival Arc", 70);
+    auto first_icon = make_widget("WBP_OBJ_AI_Map_Piece_00_C", "FirstEpisodeIcon", island);
+    auto next_icon = make_widget("WBP_OBJ_AI_Map_Piece_00_C", "NextEpisodeIcon", island);
     widget(first_icon).base = widget(next_icon).base = "SSDragonAdventureIFCTMapIconWidget";
     widget(first_icon).selected_map_icon = 1;
+    widget(first_icon).episode_key = {301, 0};
+    widget(next_icon).episode_key = {302, 0};
+    chart_cursor = {300, 0};
+    map_cursor = widget(first_icon).episode_key;
     auto outline = make_widget("WBP_OBJ_AI_Map_Outline_C", "MapOutline");
     widget(outline).base = "SSDragonAdventureIFCTMapOutlineManager";
-    auto outline_text = rendered(outline, "TXT_Outline", "Goku learns about the Saiyans.", 85);
+    auto rt_title = rendered(outline, "TXT_Title", "Search for the Ultimate Team Members!", 90);
+    rendered(outline, "TXT_Main", "The previous adventure's description.", 110);
+    auto controller = make_widget("SSDragonAdventureIFChartController", "EpisodeChartController");
+    widget(controller).links = {{"EventTitleWidget", chart}, {"StoryMapWidget", map}, {"MapOutlineWidget", outline}};
+    auto other_outline = make_widget("WBP_OBJ_AI_Map_Outline_C", "PreviousMapOutline");
+    rendered(other_outline, "TXT_Title", "Stale outline caption", 150);
     widget(chart).children.clear();
-    auto title = rendered(chart, "Text_EventTitle", "???");
-    rendered(chart, "Text_Chapter", "Chapter 1", 35);
+    auto ordinary_title = rendered(chart, "Text_EventTitle", "???");
+    rendered(chart, "Text_Chapter", "Chapter 7", 35);
+    rendered(chart, "Text_ScenarioTitle_1", "Universe Survival Arc", 45);
     rendered(chart, "Text_ScenarioTitle_0", "Goku's Saga", 55);
-    reading = reader.sample(std::array{chart, map, outline});
+    reading = reader.sample(std::array{chart, map, outline, other_outline});
     check(reading.root == map && reading.focus == first_icon &&
-          reading.announcement == "??? Chapter 1. Goku's Saga. Goku learns about the Saiyans.",
-          "The RT map should identify the displayed selection when an episode title is hidden");
-    check(std::ranges::count(reading.items, "Goku learns about the Saiyans.") == 1,
-          "F6 should review the actual outline once");
-    widget(outline_text).text = "Raditz kidnaps Gohan.";
+          reading.announcement == "Search for the Ultimate Team Members! Universe Survival Arc",
+          "An RT selection must read the controller-owned title and area even if the ordinary chart says ???");
+    check(!reading.items.empty() && reading.items.front() == reading.announcement &&
+          std::ranges::find(reading.items, "Stale outline caption") == reading.items.end() &&
+          std::ranges::find(reading.items, "The previous adventure's description.") != reading.items.end(),
+          "RT F6 should start with the current selection and keep its visible description available");
+    chart_cursor = map_cursor;
+    reading = reader.sample(std::array{chart, map, outline, other_outline});
+    check(reading.announcement == "Search for the Ultimate Team Members! Chapter 7. Universe Survival Arc",
+          "Include the painted chapter number when both cursors select the same displayed episode");
     widget(first_icon).selected_map_icon = 0;
     widget(next_icon).selected_map_icon = 1;
-    reading = reader.sample(std::array{chart, map, outline});
-    check(reading.focus == next_icon && reading.announcement == "??? Chapter 1. Goku's Saga. Raditz kidnaps Gohan.",
-          "Moving between unnamed episodes with different outlines must change automatic speech");
-    widget(title).text = "Goku's Brother Raditz";
-    reading = reader.sample(std::array{chart, map, outline});
-    check(reading.announcement == "Goku's Brother Raditz. Chapter 1. Goku's Saga",
-          "A named episode must keep its short navigation announcement");
+    map_cursor = widget(next_icon).episode_key;
+    widget(rt_title).text = "Goku's Comeback";
+    widget(area).text = "Future Trunks Arc";
+    reading = reader.sample(std::array{chart, map, outline, other_outline});
+    check(reading.focus == next_icon && reading.announcement == "Goku's Comeback. Future Trunks Arc",
+          "Switching RT areas must use the new area instead of the old painted Chapter 7 heading");
+    widget(ordinary_title).text = "Hidden episode name";
+    widget(rt_title).text = "???";
+    reading = reader.sample(std::array{chart, map, outline, other_outline});
+    check(reading.announcement == "??? Future Trunks Arc",
+          "Respect exactly the unknown label painted for the current RT selection");
     widget(next_icon).visible = false;
+    reading = reader.sample(std::array{chart, map, outline, other_outline});
+    check(!reading.focus && reading.announcement == "???",
+          "A hidden map icon cannot supply a current area or announce a change in selection");
+    widget(outline).visible = false;
+    widget(ordinary_title).text = "Ordinary chart selection";
     reading = reader.sample(std::array{chart, map, outline});
-    check(!reading.focus, "A hidden map icon cannot announce a change in selection");
+    check(reading.root == chart &&
+          reading.announcement == "Ordinary chart selection. Chapter 7. Universe Survival Arc. Goku's Saga",
+          "Once the RT outline closes, read the ordinary chart again");
 
     return EXIT_SUCCESS;
 }

@@ -77,6 +77,7 @@ struct EngineApi {
     Address text_vtable{};
     Address code_begin{};
     Address code_end{};
+    Address episode_selection_slot{};
     Address (*find)(Address type, Address outer, const wchar_t* name, bool exact){};
     void (*objects)(Address type, ArrayHeader*, bool include_derived,
                     std::uint32_t excluded, std::uint32_t excluded_internal){};
@@ -144,6 +145,7 @@ public:
     std::optional<std::string> string(Address value) const;
     void release(Address allocation) noexcept;
     bool is_code(Address address) const;
+    bool episode_cursors_match(NameId painted_episode) const;
 
 private:
     struct ObjectArray {
