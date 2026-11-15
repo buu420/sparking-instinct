@@ -6,6 +6,13 @@
 
 int main()
 {
+    using sparking::ui_detail::compose_portrait_name;
+    if (compose_portrait_name("Goku (Super), Super Saiyan", "Super Saiyan") != "Goku (Super), Super Saiyan" ||
+        compose_portrait_name("Goku (Super)", "Super Saiyan") != "Goku (Super). Super Saiyan" ||
+        compose_portrait_name("Goku、超サイヤ人", "超サイヤ人") != "Goku、超サイヤ人") {
+        std::cerr << "Character names must speak each visible form once\n";
+        return EXIT_FAILURE;
+    }
     struct Case {
         std::string_view input;
         std::string_view expected;

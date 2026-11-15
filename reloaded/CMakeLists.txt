@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.23)
-project(SparkingInstinct VERSION 0.2.2 LANGUAGES C CXX)
+project(SparkingInstinct VERSION 0.2.3 LANGUAGES C CXX)
 
 if(NOT MSVC OR NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     message(FATAL_ERROR "Build SparkingZeroAccess with MSVC for Windows x64.")
@@ -37,6 +37,7 @@ target_link_libraries(sparking_executable PRIVATE bcrypt)
 target_compile_options(sparking_executable PRIVATE /W4)
 
 add_library(SparkingZeroAccess.Native SHARED native/entry.cpp native/profile.cpp)
+target_compile_definitions(SparkingZeroAccess.Native PRIVATE SPARKING_MOD_VERSION="${PROJECT_VERSION}")
 target_link_libraries(SparkingZeroAccess.Native PRIVATE sparking_runtime sparking_engine
     sparking_executable sparking_prism minhook user32)
 target_link_options(SparkingZeroAccess.Native PRIVATE /PDBALTPATH:SparkingZeroAccess.Native.pdb)
@@ -87,6 +88,10 @@ if(BUILD_TESTING)
     add_executable(sparking_ui_reader_test native/tests/ui_reader_test.cpp)
     target_link_libraries(sparking_ui_reader_test PRIVATE sparking_runtime)
     add_test(NAME sparking_ui_reader COMMAND sparking_ui_reader_test)
+
+    add_executable(sparking_ui_menu_test native/ui_reader.cpp native/tests/ui_menu_test.cpp)
+    target_include_directories(sparking_ui_menu_test PRIVATE native)
+    add_test(NAME sparking_ui_menu COMMAND sparking_ui_menu_test)
 
     add_executable(sparking_battle_reader_test native/battle_reader.cpp native/tests/battle_reader_test.cpp)
     target_include_directories(sparking_battle_reader_test PRIVATE native)

@@ -111,7 +111,7 @@ void game_frame(Session& current, Address engine)
         auto runtime = std::make_unique<sparking::Runtime>(current.engine, current.mod_root,
             current.game_bin, [&current](std::string_view line) { current.logs.write(line); });
         current.runtime = runtime.release();
-        current.logs.write("[SparkingZeroAccess.Reloaded] Native accessibility reader ready");
+        current.logs.write("[SparkingZeroAccess.Reloaded] Sparking Instinct " SPARKING_MOD_VERSION " reader ready");
     }
     if (current.engine.faulted()) {
         current.runtime->foreground_lost();

@@ -245,21 +245,27 @@ bool image_class(std::string_view type)
     return type == "Image" || type == "SpUIImage";
 }
 
+bool story_pause(std::string_view type)
+{
+    return type == "WBP_EventPause_C";
+}
+
 bool root_is_cinematic(std::string_view type)
 {
-    return one_of(type, {"WBP_GRP_AI_EventSkip_C", "WBP_TEST_Tutorial_MoviePlayer_C",
+    return story_pause(type) || one_of(type, {"WBP_GRP_AI_EventSkip_C", "WBP_TEST_Tutorial_MoviePlayer_C",
                          "WBP_OBJ_Common_TextWindow_C", "WBP_GRP_Common_EventText_C", "WBP_GRP_AI_EndCredit_C"}) ||
            type.starts_with("WBP_GRP_AI_Event") || type.find("Subtitle") != type.npos;
 }
 
 bool root_is_dialog(std::string_view type)
 {
-    return type.starts_with("WBP_Dialog_") || type.starts_with("WBP_GRP_AI_DecisionBranch");
+    return story_pause(type) || type.starts_with("WBP_Dialog_") ||
+           type.starts_with("WBP_GRP_AI_DecisionBranch") || type == "WBP_NAD_Dialog_000_C";
 }
 
 bool operation_guide(std::string_view type)
 {
-    return type == "WBP_GRP_GuideSet_C";
+    return type == "WBP_GRP_GuideSet_C" || type == "WBP_NAD_GuideSet_C";
 }
 
 bool controls_screen(std::string_view type)
@@ -298,6 +304,41 @@ bool episode_roster(std::string_view type)
 bool episode_chart(std::string_view type)
 {
     return type == "WBP_GRP_AI_ChartTitle_C";
+}
+
+bool episode_details(std::string_view type)
+{
+    return type == "WBP_GRP_AI_ChartDetails_C";
+}
+
+bool episode_decision(std::string_view type)
+{
+    return type == "WBP_GRP_AI_DecisionBranch_0_C";
+}
+
+bool bonus_battle_list(std::string_view type)
+{
+    return type == "WBP_GRP_DB_ButtleList_C";
+}
+
+bool technique_panel(std::string_view type)
+{
+    return type == "WBP_GRP_BS_SkillList_DP_C";
+}
+
+bool journey_menu(std::string_view type)
+{
+    return one_of(type, {"WBP_NAD_Bring_C", "WBP_NAD_BringCheck_C", "WBP_NAD_CharaDetail_C",
+        "WBP_NAD_CharaDetail_NewSkill_C", "WBP_NAD_CharaDetail_R_C", "WBP_NAD_CharaSelect_C",
+        "WBP_NAD_CharaStock_C", "WBP_NAD_Difficulty_C", "WBP_NAD_DifficultyLevel_C", "WBP_NAD_Map_C",
+        "WBP_NAD_Map_Pause_C", "WBP_NAD_MasterResult_C", "WBP_NAD_MasterSelect_C", "WBP_NAD_ReDraw_C",
+        "WBP_NAD_ReDraw_Select_C", "WBP_NAD_Restart_C", "WBP_NAD_SPDivide_C", "WBP_NAD_Trajectory_C"});
+}
+
+bool journey_map_hud(std::string_view type)
+{
+    return one_of(type, {"WBP_NAD_Map_Player_C", "WBP_NAD_Map_Sutamina_C",
+                         "WBP_NAD_Map_Turn_C", "WBP_NAD_Map_Ball_C"});
 }
 
 bool stage_list(std::string_view type)
@@ -354,16 +395,17 @@ bool training_menu(std::string_view type)
 
 bool episode_screen(std::string_view type)
 {
-    return episode_roster(type) || type.starts_with("WBP_GRP_AI_Map_") ||
+    return episode_roster(type) || episode_details(type) || type.starts_with("WBP_GRP_AI_Map_") ||
            type.starts_with("WBP_GRP_AI_Chart") || type == "WBP_GRP_AI_Outline_C" ||
            type.starts_with("WBP_GRP_AI_DecisionBranch");
 }
 
 bool overview_surface(std::string_view type)
 {
-    return episode_screen(type) || split_focus_surface(type) ||
-           training_menu(type) || help_panel(type) ||
-           one_of(type, {"WBP_CMN_GuideMessage_C", "WBP_TBL_Entry_C", "WBP_TBL_Advanced_C"});
+    return episode_screen(type) || split_focus_surface(type) || bonus_battle_list(type) || technique_panel(type) ||
+           training_menu(type) || help_panel(type) || journey_menu(type) ||
+           one_of(type, {"WBP_CMN_GuideMessage_C", "WBP_TBL_Entry_C", "WBP_TBL_Advanced_C",
+                         "WBP_GRP_DB_ExDetails_C", "WBP_GRP_DB_ExDetails_2_C"});
 }
 
 struct Node {
@@ -698,9 +740,38 @@ std::string portrait_label(GameReader& game, const WidgetTree& tree, NodeIndex s
                                           "." + object_name);
     const auto type = asset ? game.engine().find_class("SSCharacterDataAsset") : ObjectRef{};
     if (!type || !game.engine().is_a(asset, type)) return {};
-    auto name = read_ui_text(game.text(asset, "CharacterDataAssetRecord.NameInfo.FullName"));
-    append(name, read_ui_text(game.text(asset, "CharacterDataAssetRecord.NameInfo.TitleName")));
-    return name;
+    return ui_detail::compose_portrait_name(
+        read_ui_text(game.text(asset, "CharacterDataAssetRecord.NameInfo.FullName")),
+        read_ui_text(game.text(asset, "CharacterDataAssetRecord.NameInfo.TitleName")));
+}
+
+bool bonus_battle_card(const WidgetTree& tree, NodeIndex scope)
+{
+    return tree[scope].type == "WBP_OBJ_DB_ButtleThumbnail_C" &&
+           tree.ancestor(scope, [](const Node& node) { return bonus_battle_list(node.type); }) != none;
+}
+
+std::string bonus_card_label(const WidgetTree& tree, NodeIndex scope, bool tags)
+{
+    auto title = named_text(tree, scope, "Txt_TitleText");
+    if (title.empty() || !tags) return title;
+    append(title, named_text(tree, scope, "Txt_MainTag"));
+    append(title, named_text(tree, scope, "Txt_MainTag_1"));
+    return title;
+}
+
+std::string shop_tile_label(GameReader& game, const WidgetTree& tree, NodeIndex scope)
+{
+    const auto& tile = tree[scope];
+    const bool shop = tile.type == "WBP_OBJ_SH_BTN_Shop_C";
+    if (!shop && tile.type != "WBP_OBJ_SH_BTN_Customize_C") return {};
+    const auto selector = tree.ancestor(scope, [](const Node& node) { return node.type == "WBP_GRP_SH_Top_C"; });
+    if (selector == none || !tree.painted(scope) ||
+        game.object(tree[selector].object, shop ? "ShopButton" : "CustomizeButton") != tile.object) return {};
+    auto caption = linked_text(game, tree, scope, "Caption");
+    if (caption.empty()) caption = named_text(tree, scope, "caption");
+    // The two menu-owned tiles can paint their names as localized artwork.
+    return caption.empty() ? (shop ? "Shop" : "Customize") : std::move(caption);
 }
 
 std::string option_label(GameReader& game, const WidgetTree& tree, NodeIndex scope)
@@ -824,11 +895,17 @@ std::string focused_label(GameReader& game, const WidgetTree& tree, NodeIndex fo
     if (initial.type == "WBP_MainMenu_Base_C") return named_text(tree, focused, "TXT_GuideMessage");
     const auto setting = tree.ancestor(focused, [&](const Node& node) { return option_row(game, node, side_changer); });
     if (setting != none) return option_label(game, tree, setting);
+    const auto card = tree.ancestor(focused, [](const Node& node) {
+        return node.type == "WBP_OBJ_DB_ButtleThumbnail_C";
+    });
+    if (card != none && bonus_battle_card(tree, card)) return bonus_card_label(tree, card, true);
     if (!initial.text.empty()) return initial.text;
     for (auto scope = focused; scope != none; scope = tree[scope].parent) {
         const auto& node = tree[scope];
+        if (auto text = shop_tile_label(game, tree, scope); !text.empty()) return text;
         if (node.type.starts_with("WBP_OBJ_BS_CharaIcon_")) return portrait_label(game, tree, scope);
         if (const auto remote = related_hit_label(game, tree, scope)) {
+            if (bonus_battle_card(tree, *remote)) return bonus_card_label(tree, *remote, true);
             if (tree[*remote].type.starts_with("WBP_OBJ_BS_CharaIcon_"))
                 return portrait_label(game, tree, *remote);
             if (auto caption = label(game, tree, *remote, side_changer); !caption.empty()) return caption;
@@ -860,6 +937,86 @@ bool passive_item_surface(std::string_view type)
            root_is_cinematic(type) || type.starts_with("WBP_CMN_Waiting");
 }
 
+NodeIndex episode_decision_focus(GameReader& game, const WidgetTree& tree, NodeIndex dialog, NodeIndex focus)
+{
+    constexpr std::array<std::string_view, 4> choices{
+        "WBP_OBJ_DecisionBranch_Btn_Top_C", "WBP_OBJ_DecisionBranch_Btn_Bottom_C",
+        "WBP_OBJ_DecisionBranch_Btn_Left_C", "WBP_OBJ_DecisionBranch_Btn_Right_C"};
+    if (focus != none) {
+        const auto current = tree.ancestor(focus, [&](const Node& node) {
+            return std::ranges::find(choices, node.type) != choices.end();
+        });
+        if (current != none && tree.within(current, dialog) && tree.painted(current)) return current;
+    }
+    const auto object = tree[dialog].object;
+    if (!game.engine().is_a(object, game.engine().find_class("SSEventSceneDecisionBranch")) ||
+        !game.engine().live(object)) return none;
+    // The native decision update stores the active painted direction even during dummy input focus.
+    constexpr std::size_t selected_direction = 0x501; // USSEventSceneDecisionBranch, 142aac9c0
+    const auto direction = read<std::uint8_t>(object.address + selected_direction).value_or(0);
+    if (direction == 0 || direction > choices.size()) return none;
+    const auto button = unique_widget(tree, dialog, [&](const Node& node) {
+        return node.type == choices[direction - 1] && node.visible;
+    });
+    return button && tree.painted(*button) ? *button : none;
+}
+
+std::string episode_decision_label(GameReader& game, const WidgetTree& tree, NodeIndex dialog, NodeIndex choice)
+{
+    if (choice == none) return {};
+    const auto caption = [&](NodeIndex owner) {
+        const auto text = tree.locate(game.object(tree[owner].object, "Caption"));
+        if (text && tree.within(*text, dialog) && !tree[*text].text.empty()) return tree[*text].text;
+        return named_text(tree, owner, "caption");
+    };
+    if (auto text = caption(choice); !text.empty()) return text;
+    const auto remote = tree.locate(game.object(tree[choice].object, "RemoteButton"));
+    return remote && *remote != dialog && *remote != choice && tree.within(*remote, dialog)
+        ? caption(*remote) : std::string{};
+}
+
+bool journey_strength_title(std::string_view name)
+{
+    return one_of(name, {"Text_Def_SP_Title", "Text_Danger_SP_Title", "Text_Boss_SP_Title",
+                         "Text_LBoss_SP_Title", "Text_SBoss_SP_Title"});
+}
+
+bool journey_strength_value(std::string_view name)
+{
+    const auto split = name.find("_SP");
+    return split != name.npos &&
+           one_of(name.substr(0, split), {"Text_Default", "Text_Danger", "Text_Boss", "Text_LBoss", "Text_SBoss"}) &&
+           one_of(name.substr(split + 3), {"", "_R", "_Y", "_W", "_DR"});
+}
+
+std::string journey_spot_label(const WidgetTree& tree, NodeIndex spot, std::unordered_set<NodeIndex>& consumed)
+{
+    std::string_view title, value;
+    for (auto i = spot + 1; i < tree[spot].end; ++i) {
+        const auto& leaf = tree[i];
+        if (leaf.text.empty()) continue;
+        if (journey_strength_value(leaf.name)) {
+            if (!value.empty() && value != leaf.text) return {};
+            value = leaf.text;
+        } else if (journey_strength_title(leaf.name)) {
+            if (!title.empty() && title != leaf.text) return {};
+            title = leaf.text;
+        }
+    }
+    std::string label;
+    if (unique_widget(tree, spot, [&](const Node& leaf) {
+            const auto index = static_cast<NodeIndex>(&leaf - tree.nodes().data());
+            return leaf.name == "IMG_Here" && image_class(leaf.type) && tree.painted(index);
+        })) label = "Current location";
+    if (value.empty()) return label;
+    for (auto i = spot + 1; i < tree[spot].end; ++i) {
+        if (!tree[i].text.empty() && (journey_strength_value(tree[i].name) || journey_strength_title(tree[i].name)))
+            consumed.insert(i);
+    }
+    append(label, std::string(title.empty() ? "SP" : title) + " " + std::string(value));
+    return label;
+}
+
 std::string episode_chart_text(const WidgetTree& tree, NodeIndex chart)
 {
     if (named_text(tree, chart, "Text_ScenarioTitle_0").empty()) return {};
@@ -868,6 +1025,41 @@ std::string episode_chart_text(const WidgetTree& tree, NodeIndex chart)
                             "Text_ScenarioTitle_0", "TXT_Orb"})
         append(result, named_text(tree, chart, title));
     return result;
+}
+
+NodeIndex episode_overview(GameReader& game, const WidgetTree& tree)
+{
+    return unique_surface(tree, [&](const Node& node) {
+        return node.type.starts_with("WBP_GRP_AI_Map_") && node.visible &&
+            game.engine().is_a(node.object, game.engine().find_class("SSDragonAdventureIFCTMapManager"));
+    });
+}
+
+NodeIndex episode_overview_focus(GameReader& game, const WidgetTree& tree, NodeIndex map)
+{
+    constexpr std::size_t selected_icon = 0x448; // USSDragonAdventureIFCTMapIconWidget, 1424f5390
+    const auto type = game.engine().find_class("SSDragonAdventureIFCTMapIconWidget");
+    const auto icon = unique_widget(tree, map, [&](const Node& node) {
+        if (node.type != "WBP_OBJ_AI_Map_Piece_00_C" || !node.visible ||
+            !game.engine().is_a(node.object, type) || !game.engine().live(node.object) ||
+            read<std::uint8_t>(node.object.address + selected_icon) != 1) return false;
+        const auto index = static_cast<NodeIndex>(&node - tree.nodes().data());
+        return tree.painted(index).has_value();
+    });
+    return icon.value_or(none);
+}
+
+std::string episode_overview_outline(const WidgetTree& tree)
+{
+    const auto outline = unique_surface(tree, [](const Node& node) {
+        return node.type == "WBP_OBJ_AI_Map_Outline_C" && node.visible;
+    });
+    if (outline == none) return {};
+    if (auto summary = named_text(tree, outline, "TXT_Outline"); !summary.empty()) return summary;
+    const auto text = unique_widget(tree, outline, [](const Node& node) {
+        return (node.name == "TXT_Outline" || node.name.starts_with("TXT_Outline_")) && !node.text.empty();
+    });
+    return text ? tree[*text].text : std::string{};
 }
 
 void collect_subtitle(GameReader& game, const WidgetTree& tree, ScreenReading& result,
@@ -1079,6 +1271,11 @@ NodeIndex modal_surface(GameReader& game, const WidgetTree& tree)
         return candidate(node) && (node.keyboard || node.controller ||
             game.call_bool(node.object, "HasFocusedDescendants").value_or(false));
     });
+    if (focused != none && !episode_decision(tree[focused].type)) return focused;
+    const auto pause = unique_surface(tree, [&](const Node& node) {
+        return story_pause(node.type) && candidate(node);
+    });
+    if (pause != none) return pause;
     if (focused != none) return focused;
     return unique_surface(tree, candidate);
 }
@@ -1171,6 +1368,14 @@ NodeIndex stage_surface(GameReader& game, const WidgetTree& tree)
 NodeIndex main_surface(GameReader& game, const WidgetTree& tree, NodeIndex focus, NodeIndex modal)
 {
     if (modal != none) return modal;
+    const auto details = unique_surface(tree, [&](const Node& node) {
+        if (!episode_details(node.type)) return false;
+        const auto index = static_cast<NodeIndex>(&node - tree.nodes().data());
+        const bool input = (focus != none && tree.within(focus, index)) || active_menu(game, node);
+        return input && (!named_text(tree, index, "CategoryTitleText").empty() ||
+                         !named_text(tree, index, "TXT_Outline").empty());
+    });
+    if (details != none) return details;
     const auto chart = unique_surface(tree, [&](const Node& node) {
         if (!episode_chart(node.type)) return false;
         const auto index = static_cast<NodeIndex>(&node - tree.nodes().data());
@@ -1215,6 +1420,17 @@ NodeIndex main_surface(GameReader& game, const WidgetTree& tree, NodeIndex focus
 }
 
 } // namespace
+
+std::string ui_detail::compose_portrait_name(std::string full_name, std::string_view form)
+{
+    if (!form.empty() && full_name.ends_with(form)) {
+        const auto preceding = std::string_view(full_name).substr(0, full_name.size() - form.size());
+        if (preceding.empty() || preceding.ends_with(", ") || preceding.ends_with("、") ||
+            preceding.ends_with("，")) return full_name;
+    }
+    append(full_name, form);
+    return full_name;
+}
 
 bool ui_detail::matches_menu_visual(std::string_view root, std::string_view hit, std::string_view visual)
 {
@@ -1375,8 +1591,23 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic,
     const auto modal = modal_surface(game_, tree);
     auto focus = focused_widget(game_, tree, modal);
     const auto surface = main_surface(game_, tree, focus, modal);
-    if (surface != none && episode_chart(tree[surface].type) && focus != none && !tree.within(focus, surface))
+    const bool decision = modal != none && episode_decision(tree[modal].type);
+    const bool paused_story = modal != none && story_pause(tree[modal].type);
+    const auto overview = surface != none && episode_chart(tree[surface].type) ? episode_overview(game_, tree) : none;
+    const bool journey_map = surface != none && tree[surface].type == "WBP_NAD_Map_C";
+    if (decision) focus = episode_decision_focus(game_, tree, modal, focus);
+    auto map_spot = none;
+    if (journey_map && focus != none) {
+        map_spot = tree.ancestor(focus, [](const Node& node) { return node.type == "WBP_OBJ_NAD_Map_Spot_C"; });
+        if (map_spot != none && tree.within(map_spot, surface)) focus = map_spot;
+        else map_spot = none;
+    }
+    if (overview != none) {
+        focus = episode_overview_focus(game_, tree, overview);
+    } else if (surface != none && (episode_chart(tree[surface].type) || episode_details(tree[surface].type)) &&
+               focus != none && !tree.within(focus, surface)) {
         focus = none;
+    }
     if (diagnostics && surface != none)
         result.visible_surfaces.push_back(tree[surface].type + " (" + tree[surface].name + ")");
     for (NodeIndex i = 0; diagnostics && i < tree.nodes().size() && result.visible_surfaces.size() < 28; ++i) {
@@ -1384,13 +1615,15 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic,
         if (i == surface || (node.parent != none && !overview_surface(node.type) && !raised_dialog(node.type))) continue;
         if (node.visible) result.visible_surfaces.push_back(node.type + " (" + node.name + ")");
     }
-    if (surface != none) result.root = tree[surface].object;
+    if (surface != none) result.root = tree[overview == none ? surface : overview].object;
     if (focus != none) result.focus = tree[focus].object;
     const auto side_changer = game_.engine().find_class("SSMenuButtonSideChanger");
     std::unordered_set<NodeIndex> consumed;
     collect_subtitle(game_, tree, result, consumed, modal);
     collect_tutorial(game_, tree, result, consumed, modal);
-    if (focus != none && !consumed.contains(focus))
+    if (decision) result.announcement = episode_decision_label(game_, tree, modal, focus);
+    else if (map_spot != none) result.announcement = journey_spot_label(tree, map_spot, consumed);
+    else if (!journey_map && focus != none && !consumed.contains(focus))
         result.announcement = focused_label(game_, tree, focus, side_changer);
     if (result.announcement.empty() && surface != none && tree[surface].type == "WBP_Title_C") {
         for (auto i = surface + 1; i < tree[surface].end; ++i)
@@ -1416,12 +1649,21 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic,
     auto review_scope = none;
     if (surface != none) {
         const auto& current = tree[surface];
-        if (modal != none) {
+        if (paused_story) {
+            if (result.announcement.empty()) result.announcement = visible_lines(tree, modal, consumed);
+        } else if (modal != none && !decision) {
             const auto selection = std::move(result.announcement);
             result.announcement = visible_lines(tree, modal, consumed, selection);
             append(result.announcement, selection);
         } else if (episode_chart(current.type)) {
             result.announcement = episode_chart_text(tree, surface);
+            if (overview != none) {
+                const auto title = named_text(tree, surface, "Text_EventTitle");
+                if (title.empty() || title == "???" || title == "？？？")
+                    append(result.announcement, episode_overview_outline(tree));
+            }
+        } else if (episode_details(current.type)) {
+            result.announcement = visible_lines(tree, surface, consumed);
         } else if (episode_roster(current.type)) {
             auto roster = named_text(tree, surface, "CaracterText_0");
             append(roster, named_text(tree, surface, "TXT_ChapterTitle"));
@@ -1438,11 +1680,11 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic,
             const auto details = other_menu_panel(game_, tree, surface);
             if (details != none)
                 append(result.announcement, visible_lines(tree, details, consumed, result.announcement));
-            else if (help_panel(current.type) || current.type == "WBP_CMN_GuideMessage_C" ||
-                     one_of(current.type, {"WBP_GRP_HUN_MissionDetail_C", "WBP_GRP_HUN_Details_C"}) ||
-                     current.type == "WBP_GRP_SH_Detail_00_C")
+            else if (help_panel(current.type) || one_of(current.type, {
+                     "WBP_CMN_GuideMessage_C", "WBP_GRP_HUN_MissionDetail_C", "WBP_GRP_HUN_Details_C",
+                     "WBP_GRP_SH_Detail_00_C", "WBP_GRP_DB_ExDetails_C", "WBP_GRP_DB_ExDetails_2_C"}))
                 append(result.announcement, visible_lines(tree, surface, consumed, result.announcement));
-            else if (result.announcement.empty() && overview_surface(current.type) &&
+            else if (result.announcement.empty() && overview_surface(current.type) && !journey_map &&
                      !character_grid(current.type) && !stage_list(current.type))
                 result.announcement = visible_lines(tree, surface, consumed);
         }
@@ -1490,7 +1732,9 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic,
     NodeIndex reviewed_focus = none;
     auto focus_review = result.announcement;
     append(focus_review, result.control_details);
-    if (!focus_review.empty() && focus != none) {
+    const bool panel_review = surface != none && (decision || paused_story || journey_map ||
+        technique_panel(tree[surface].type) || episode_chart(tree[surface].type) || episode_details(tree[surface].type));
+    if (!focus_review.empty() && focus != none && !panel_review) {
         const auto visual = related_hit_label(game_, tree, focus);
         auto focus_position = visual.value_or(focus);
         const auto setting = tree.ancestor(focus_position, [&](const Node& node) {
@@ -1507,7 +1751,22 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic,
         const auto& node = tree[i];
         if ((modal != none && !tree.within(i, modal)) ||
             (reviewed_focus != none && review_scope != none && tree.within(i, review_scope))) continue;
-        if (option_row(game_, node, side_changer)) {
+        if (surface != none && (journey_map || technique_panel(tree[surface].type) || episode_details(tree[surface].type)) &&
+            !tree.within(i, surface) && !operation_guide(tree[node.root].type)) {
+            if (!journey_map || tree.ancestor(i, [](const Node& parent) {
+                    return journey_map_hud(parent.type);
+                }) == none) continue;
+        }
+        if (journey_map && node.type == "WBP_OBJ_NAD_Map_Spot_C" && tree.within(i, surface)) {
+            if (tree.painted(i)) put_item(items, tree, i,
+                i == map_spot ? result.announcement : journey_spot_label(tree, i, consumed));
+        } else if (auto tile = shop_tile_label(game_, tree, i); !tile.empty()) {
+            if (i != reviewed_focus) put_item(items, tree, i, std::move(tile));
+            consume_text(tree, i, consumed, {"caption"});
+        } else if (bonus_battle_card(tree, i)) {
+            if (i != reviewed_focus) put_item(items, tree, i, bonus_card_label(tree, i, false));
+            consume_text(tree, i, consumed, {"Txt_TitleText", "Txt_MainTag", "Txt_MainTag_1"});
+        } else if (option_row(game_, node, side_changer)) {
             const auto value = option_label(game_, tree, i);
             if (value.empty() || !tree.painted(i)) continue;
             if (i != reviewed_focus) put_item(items, tree, i, value);
@@ -1547,7 +1806,7 @@ ScreenReading UiReader::sample(std::span<const ObjectRef> roots, bool cinematic,
     const auto remember = [&](const std::string& text) {
         if (!text.empty() && seen.insert(text).second) result.items.push_back(text);
     };
-    if (reviewed_focus == none) remember(focus_review);
+    if (reviewed_focus == none && !panel_review) remember(focus_review);
     for (const auto& item : items) remember(item.text);
     remember(result.tutorial);
     for (const auto& subtitle : result.subtitles) remember(subtitle.text);

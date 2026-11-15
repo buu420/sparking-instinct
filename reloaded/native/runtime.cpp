@@ -50,6 +50,12 @@ bool save_subtitles(const std::filesystem::path& path, bool enabled)
     return false;
 }
 
+void append_missing(std::vector<std::string>& items, std::span<const std::string> additional)
+{
+    for (const auto& item : additional)
+        if (!item.empty() && std::ranges::find(items, item) == items.end()) items.push_back(item);
+}
+
 std::string together(const auto& items)
 {
     std::string result;
@@ -183,10 +189,7 @@ void Runtime::sample(Clock::time_point now)
     if (engine_.faulted()) return;
     reading_.update_hud(hud_.items, hud_.announcements, now);
     auto next_items = screen_.items;
-    for (const auto& item : hud_.items) {
-        if (!item.empty() && std::ranges::find(next_items, item) == next_items.end())
-            next_items.push_back(item);
-    }
+    append_missing(next_items, hud_.items);
     if (next_items != items_) {
         const auto previous = items_.empty() ? std::string_view{} : std::string_view(items_[review_index_]);
         const auto found = std::ranges::find(next_items, previous);
@@ -262,18 +265,20 @@ void Runtime::review(int direction)
 
 void Runtime::dump(bool battle)
 {
-    const auto& lines = battle ? hud_.items : items_;
+    auto captured = battle ? ScreenReading{} : ui_.sample(game_.viewport_roots(), movie_visible_, true);
+    if (!battle) append_missing(captured.items, hud_.items);
+    const auto& observed = battle ? screen_ : captured;
+    const auto& lines = battle ? hud_.items : captured.items;
     report_(std::string(battle ? "Battle HUD review, " : "Screen review, ") +
             std::to_string(lines.size()) + " items.");
-    if (screen_.root)
-        report_("Screen root: " + engine_.class_name(screen_.root));
-    if (screen_.focus)
-        report_("Screen focus: " + engine_.class_name(screen_.focus) + " " + engine_.name_of(screen_.focus));
+    if (observed.root)
+        report_("Screen root: " + engine_.class_name(observed.root));
+    if (observed.focus)
+        report_("Screen focus: " + engine_.class_name(observed.focus) + " " + engine_.name_of(observed.focus));
     if (!battle) {
-        const auto captured = ui_.sample(game_.viewport_roots(), movie_visible_, true);
         for (const auto& surface : captured.visible_surfaces)
             report_("Visible surface: " + surface);
-        if (!screen_.announcement.empty()) report_("Automatic menu speech: " + screen_.announcement);
+        if (!observed.announcement.empty()) report_("Automatic menu speech: " + observed.announcement);
     }
     for (const auto& item : lines) report_(item);
 }

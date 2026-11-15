@@ -20,6 +20,7 @@ struct ScreenReading {
 std::string read_ui_text(std::string_view rendered_text);
 
 namespace ui_detail {
+std::string compose_portrait_name(std::string full_name, std::string_view form);
 bool matches_menu_visual(std::string_view root, std::string_view hit, std::string_view visual);
 std::string compose_help_prompt(std::string_view combined, std::string_view keys, std::string_view action);
 bool matches_training_reset_prompt(std::string_view painted);
