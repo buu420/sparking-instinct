@@ -2,7 +2,7 @@
   "ModId": "sparkingzero.accessibility.reloaded",
   "ModName": "Sparking Instinct",
   "ModAuthor": "Buu420",
-  "ModVersion": "0.2.5",
+  "ModVersion": "0.2.6",
   "ModDescription": "Screen reader accessibility for DRAGON BALL: Sparking! ZERO on Steam.",
   "ModNativeDll32": "",
   "ModNativeDll64": "SparkingZeroAccess.Native.dll",

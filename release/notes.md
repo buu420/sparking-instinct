@@ -1,8 +1,8 @@
 Sparking Instinct is a screen reader mod for **DRAGON BALL: Sparking! ZERO**. This beta includes the native Reloaded II reader, Prism, and Buu420's audio descriptions for the opening and post-tutorial movie.
 
-Version 0.2.5 reads character selection from the game's roster cursor and painted character portraits. Single Battle, DP Battle, and single-character tournaments use the same roster reader, including after Random picks a fighter.
+Version 0.2.6 restores automatic fighter names when the character grid lacks keyboard focus. The reader follows the native roster cursor and its painted portrait, including after Random. It can verify a painted portrait when the controller's roster data is unavailable.
 
-This beta captures visible menu changes, selections, and reader speech automatically. F4 is optional. The reader keeps recent diagnostics across restarts.
+This beta captures visible menu changes, selections, and reader speech automatically. If a roster selection is silent, the log now records which part of the lookup was available. F4 is optional. The reader keeps recent diagnostics across restarts.
 
 The beta supports **Windows x64, Steam build 24953175 (game version 3022.021.003.012.015)**.
 

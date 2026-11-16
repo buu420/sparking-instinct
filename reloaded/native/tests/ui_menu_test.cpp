@@ -26,6 +26,8 @@ std::vector<std::string> classes;
 NameId chart_cursor{}, map_cursor{};
 ObjectRef singleton, fighter_data;
 std::unordered_map<std::uint32_t, ObjectRef> fighters;
+std::unordered_map<std::string, ObjectRef> loaded_assets;
+bool omit_battle_controllers{};
 std::unordered_map<Address, std::vector<std::byte>> native_values;
 
 template<class T> void set_native(Address address, const T& value)
@@ -157,7 +159,20 @@ std::vector<ObjectRef> GameReader::widget_children(ObjectRef owner) { return wid
 std::vector<ObjectRef> GameReader::objects(ObjectRef, std::string_view, std::size_t) { return {}; }
 std::string Unreal::name_of(ObjectRef owner) { return owner ? widget(owner).name : std::string{}; }
 std::string Unreal::class_name(ObjectRef owner) { return owner ? widget(owner).type : std::string{}; }
-ObjectRef Unreal::find(std::string_view) { return {}; }
+ObjectRef Unreal::find(std::string_view path)
+{
+    const auto found = loaded_assets.find(std::string(path));
+    return found == loaded_assets.end() ? ObjectRef{} : found->second;
+}
+std::string Unreal::name(NameId id)
+{
+    return id == NameId{401, 0} ? "ChangeCharaIconButton" : std::string{};
+}
+ObjectRef Unreal::weak(std::int32_t index, std::int32_t serial) const
+{
+    if (index < 0 || serial != 1 || static_cast<std::size_t>(index) >= widgets.size()) return {};
+    return {static_cast<Address>(index + 1), index, serial};
+}
 ObjectRef Unreal::game_instance() { return {}; }
 ObjectRef Unreal::game_singleton() { return singleton; }
 ObjectRef Unreal::character_asset(ObjectRef data, NameId key)
@@ -187,6 +202,7 @@ bool Unreal::is_a(ObjectRef owner, ObjectRef type) const
 std::vector<ObjectRef> Unreal::objects(std::string_view type, std::string_view name, std::size_t limit,
                                        std::uint32_t, std::uint32_t, bool exact)
 {
+    if (omit_battle_controllers && type == "SSBattleSetupController") return {};
     std::vector<ObjectRef> matches;
     for (std::size_t i = 0; i < widgets.size(); ++i) {
         const auto& entry = widgets[i];
@@ -310,6 +326,7 @@ int main()
     widget(other_record).links["CharacterDataAssetRecord.UIAssets.FaceChipCharacterSelect1P"] = other_texture;
     fighters = {{91, aliased_record}, {92, other_record}};
     auto battle_hit = make_widget("WBP_OBJ_Common_HitButton_C", "FixedHit_0", roster);
+    widget(battle_hit).base = "SSMenuButton";
     auto battle_remote = make_widget("WBP_OBJ_BS_CharaIcon_DP_C", "Remote_0", roster);
     widget(battle_remote).base = "SSBattleSetupNewCharaIcon";
     widget(battle_remote).values["FaceImageWidgetName"] = "IMG_Face_Main";
@@ -333,6 +350,40 @@ int main()
           "The native alias also needs a name in screen review");
     check(std::ranges::find(reading.items, "Android 17") == reading.items.end(),
           "A stale nameplate should not claim the active roster selection in review");
+
+    // The real roster still has a paint callback when a global actor lookup misses its controller.
+    constexpr Address native_callbacks = 0x300000;
+    set_native(roster.address + 0x4a0, ArrayHeader{native_callbacks, 1, 1});
+    set_native(native_callbacks, std::array<std::int32_t, 4>{setup.index, setup.serial, 401, 0});
+    set_native(setup.address + 0xb10, roster.address);
+    omit_battle_controllers = true;
+    reading = reader.sample(std::array{technique, roster, team, transforms, name_plate});
+    check(reading.root == roster && reading.focus == battle_hit && reading.announcement == "Goku (Super). Super Saiyan Blue",
+          "An unfocused active roster must find the controller registered to paint its rows");
+
+    set_native(native_callbacks, std::array<std::int32_t, 4>{setup.index, setup.serial + 1, 401, 0});
+    const std::string canonical_path =
+        "/Game/SS/MasterDataAsset/CharacterData/CharacterData_0000_40.CharacterData_0000_40";
+    loaded_assets[canonical_path] = aliased_record;
+    reading = reader.sample(std::array{technique, roster, team, transforms, name_plate});
+    check(reading.focus == battle_hit && reading.announcement == "Goku (Super). Super Saiyan Blue",
+          "A visible selected hit must use a verified portrait when the controller is unavailable");
+    check(std::ranges::find(reading.items, "Goku (Super). Super Saiyan Blue") != reading.items.end(),
+          "The same painted name should be available in manual review");
+
+    widget(battle_hit).visible = false;
+    reading = reader.sample(std::array{technique, roster, team, transforms, name_plate});
+    check(reading.focus == battle_remote && reading.announcement == "Goku (Super). Super Saiyan Blue",
+          "The registered native hit may lack its own paint when its portrait is visible");
+    widget(battle_hit).visible = true;
+
+    loaded_assets[canonical_path] = other_record;
+    reading = reader.sample(std::array{technique, roster, team, transforms, name_plate});
+    check(reading.focus == battle_hit && reading.announcement.empty(),
+          "An unrelated loaded asset must not name a selected portrait");
+    loaded_assets.clear();
+    omit_battle_controllers = false;
+    set_native(roster.address + 0x4a0, ArrayHeader{});
     widget(slot).focused = true;
     set_native(setup.address + 0xc90, std::uint8_t{0x1a});
     set_native(setup.address + 0xcd4, std::uint8_t{0x1b});
