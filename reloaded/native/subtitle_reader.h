@@ -9,6 +9,15 @@ namespace sparking {
 
 class GameReader;
 
+namespace subtitle_detail {
+enum class Playback { none, preparing, playing };
+
+struct Voice {
+    Playback playback{};
+    std::string_view evidence;
+};
+}
+
 struct SubtitleLine {
     ObjectRef window{}, text_widget{}, event_window{};
     std::string text;
@@ -20,7 +29,7 @@ public:
 
     explicit SubtitleReader(GameReader& game) : game_(game) {}
     std::string sample(std::span<const SubtitleLine> visible, bool include_voiced, Clock::time_point now,
-                       std::string_view tutorial = {});
+                       std::string_view tutorial = {}, std::string* diagnostics = nullptr);
     void reset();
 
 private:
@@ -28,9 +37,10 @@ private:
         ObjectRef window{}, text_widget{};
         std::string text;
         unsigned missing{};
+        Clock::time_point voice_deadline{};
     };
 
-    bool voiced(const SubtitleLine& line, Clock::time_point now);
+    subtitle_detail::Voice voice(const SubtitleLine& line, Clock::time_point now);
     void find_story_owner(ObjectRef controller, ObjectRef window, Clock::time_point now);
 
     GameReader& game_;

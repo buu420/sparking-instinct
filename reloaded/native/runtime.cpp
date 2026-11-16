@@ -234,7 +234,10 @@ void Runtime::sample(Clock::time_point now)
     const bool changed = reading_.screen_changed(screen_.root, screen_.focus, screen_.announcement);
     const bool control_details = reading_.control_details_changed(screen_.control_details, changed);
     const bool tutorial = reading_.tutorial_due(screen_.tutorial, now);
-    const auto subtitle = subtitle_reader_.sample(screen_.subtitles, subtitles_, now, screen_.tutorial);
+    std::string subtitle_filter_log;
+    const auto subtitle = subtitle_reader_.sample(screen_.subtitles, subtitles_, now, screen_.tutorial,
+                                                  &subtitle_filter_log);
+    if (!subtitle_filter_log.empty()) report_(subtitle_filter_log);
     const bool help = reading_.battle_help_changed(screen_.battle_help);
     const bool menu = changed && screen_.announcement != screen_.tutorial &&
         std::ranges::find(screen_.subtitles, screen_.announcement, &SubtitleLine::text) == screen_.subtitles.end();

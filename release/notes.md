@@ -1,8 +1,8 @@
 Sparking Instinct is a screen reader mod for **DRAGON BALL: Sparking! ZERO**. This beta includes the native Reloaded II reader, Prism, and Buu420's audio descriptions for the opening and post-tutorial movie.
 
-Version 0.2.6 restores automatic fighter names when the character grid lacks keyboard focus. The reader follows the native roster cursor and its painted portrait, including after Random. It can verify a painted portrait when the controller's roster data is unavailable.
+Version 0.2.7 fixes the F9 dialogue filter. In filtered mode, a caption whose matching game voice is playing is skipped automatically. The reader briefly waits for a matching voice to start and reads the caption if playback fails. Text-only story lines and captions without a confirmed voice still read.
 
-This beta captures visible menu changes, selections, and reader speech automatically. If a roster selection is silent, the log now records which part of the lookup was available. F4 is optional. The reader keeps recent diagnostics across restarts.
+This beta captures visible menu changes, selections, and reader speech automatically. The log records subtitle filter decisions and silent roster states. F4 is optional. The reader keeps recent diagnostics across restarts.
 
 The beta supports **Windows x64, Steam build 24953175 (game version 3022.021.003.012.015)**.
 
@@ -15,7 +15,7 @@ F6 reads the screen. F7 and F8 review items. F9 switches between reading all vis
 
 ## What to test
 
-Try Single Battle, DP Battle, and a one-character tournament. Move through a few rows, then use Random from several positions. Check that the landed fighter reads after the image updates. Test a transformation and return to the roster if you can.
+With F9 set to skip voiced dialogue, listen for an in-game character line in a menu or battle. Then try a text-only transition in Episode Battle. Confirm that the game voice plays without screen-reader duplication and that text-only story lines still speak. F6 can review the visible text in either mode.
 
 For a report, send `SparkingZeroAccess.Reloaded.log` from `SparkingZeroAccess-Reloaded\Logs` inside the game folder. If the report happened before the file last rotated, include `SparkingZeroAccess.Reloaded.previous-1.log` from the same folder. Include the game mode and the action you took. For a crash, include the matching Unreal crash report or Windows Application Error.
 

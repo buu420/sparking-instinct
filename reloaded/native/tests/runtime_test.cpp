@@ -48,7 +48,7 @@ void GameReader::reset() {}
 ScreenReading UiReader::sample(std::span<const ObjectRef>, bool, bool) { return screen; }
 void UiReader::reset() {}
 
-std::string SubtitleReader::sample(std::span<const SubtitleLine>, bool, Clock::time_point, std::string_view)
+std::string SubtitleReader::sample(std::span<const SubtitleLine>, bool, Clock::time_point, std::string_view, std::string*)
 {
     return {};
 }

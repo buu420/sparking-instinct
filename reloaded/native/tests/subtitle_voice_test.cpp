@@ -24,10 +24,15 @@ const ObjectRef story_window{0x160000, 14, 1};
 const ObjectRef window{0x170000, 15, 1};
 const ObjectRef text_widget{0x180000, 16, 1};
 const ObjectRef conversation_window{0x190000, 17, 1};
+const ObjectRef singleton{0x1a0000, 18, 1};
+const ObjectRef level_script{0x1b0000, 19, 1};
+const ObjectRef sequence_player{0x1c0000, 20, 1};
+constexpr Address conversation_rows = 0x220000;
+constexpr Address spawned_voices = 0x230000;
 
-std::string key, cue;
+std::string key, cue, row_key, suffix;
 double playback_status = 2., volume = 1.;
-bool paused{}, paper_scene{}, event_scene{}, conversation{}, unknown_world{};
+bool paused{}, paper_scene{}, event_scene{}, conversation{}, unknown_world{}, use_sequence{};
 unsigned lookups{}, inspected_voices{};
 
 void check(bool condition, const char* message)
@@ -47,6 +52,9 @@ void scenario()
 {
     key = "ST_Line_007";
     cue = "ADVIF_Line_007";
+    row_key = key;
+    suffix.clear();
+    use_sequence = false;
     playback_status = 2.;
     volume = 1.;
     paused = unknown_world = paper_scene = conversation = false;
@@ -58,14 +66,26 @@ void scenario()
 namespace sparking {
 bool guarded_copy(void* output, Address address, std::size_t size) noexcept
 {
-    if (size == sizeof(Address) && address == instance.address + 0x920) {
-        *static_cast<Address*>(output) = manager.address;
+    if (size == sizeof(ArrayHeader)) {
+        if (address == level_script.address + 0xc98) {
+            *static_cast<ArrayHeader*>(output) = {conversation_rows, 1, 1};
+            return true;
+        }
+        if (use_sequence && address == controller.address + 0xd18) {
+            *static_cast<ArrayHeader*>(output) = {spawned_voices, 1, 1};
+            return true;
+        }
+    }
+    if (use_sequence && address == spawned_voices && size == sizeof(std::array<std::int32_t, 2>)) {
+        *static_cast<std::array<std::int32_t, 2>*>(output) = {sequence_player.index, sequence_player.serial};
         return true;
     }
     if (size == sizeof(std::uint32_t) &&
         (address == voice_player.address + 0x298 || address == paper.address + 0x638 ||
-         address == controller.address + 0xd28)) {
-        *static_cast<std::uint32_t*>(output) = 7;
+         address == controller.address + 0xd28 || address == controller.address + 0xd08 ||
+         address == sequence_player.address + 0x408)) {
+        *static_cast<std::uint32_t*>(output) =
+            address == controller.address + 0xd08 || (use_sequence && address == controller.address + 0xd28) ? 0 : 7;
         return true;
     }
     return false;
@@ -77,7 +97,21 @@ ObjectRef Unreal::capture(Address address)
     if (address == sound_handle_type.address) return sound_handle_type;
     return {};
 }
+std::string Unreal::class_name(ObjectRef) { return "CaptionWindow"; }
 ObjectRef Unreal::game_instance() { return instance; }
+ObjectRef Unreal::game_singleton() { return singleton; }
+ObjectRef Unreal::weak(std::int32_t index, std::int32_t serial) const
+{
+    return index == sequence_player.index && serial == sequence_player.serial ? sequence_player : ObjectRef{};
+}
+std::string Unreal::text_key(Address address)
+{
+    return address == conversation_rows + 0x38 ? row_key : std::string{};
+}
+std::optional<std::string> Unreal::string(Address address) const
+{
+    return address == conversation_rows + 0xf8 ? std::optional{suffix} : std::nullopt;
+}
 ObjectRef Unreal::find_class(std::string_view)
 {
     return ObjectRef{0x200000, 29, 1};
@@ -116,9 +150,12 @@ ObjectRef Unreal::voice_component(ObjectRef owner, std::uint32_t handle)
 ObjectRef GameReader::object(ObjectRef owner, std::string_view field)
 {
     if (owner == ::player && field == "PlayerController") return controller;
+    if (owner == singleton && field == "SoundPlayer") return manager;
     if (owner == ::manager && field == "VoiceManager") return voice_manager;
     if (owner == ::level && field == "OwningWorld") return world;
     if (owner == ::world && field == "OwningGameInstance" && !unknown_world) return instance;
+    if (owner == ::world && field == "PersistentLevel") return level;
+    if (owner == ::level && field == "LevelScriptActor") return level_script;
     if (owner == scene_controller && field == "Script") return script;
     if (owner == script && field == "MessageWidget") return story_window;
     if (owner == paper && field == "CutTextUi") return story_window;
@@ -169,8 +206,35 @@ int main()
           "Reading all dialogue performed a native voice lookup");
     reader.reset();
     check(reader.sample(lines, false, now).empty() && inspected_voices == 1,
-          "The exact voiced event line was read over the game's dialogue");
+          "A voiced event line must resolve SoundPlayer from the game singleton");
     check(reader.sample(lines, true, now).empty(), "Changing F9 replayed a suppressed line");
+
+    reader.reset();
+    playback_status = 1.;
+    check(reader.sample(lines, false, now).empty(),
+          "A caption with its own preparing voice must wait for playback");
+    playback_status = 2.;
+    check(reader.sample(lines, false, now + std::chrono::milliseconds(80)).empty(),
+          "The late-starting exact voice should suppress its caption");
+    check(reader.sample(lines, false, now + std::chrono::seconds(1)).empty(),
+          "A caption suppressed after preparation must stay handled");
+    reader.reset();
+    playback_status = 1.;
+    check(reader.sample(lines, false, now).empty(), "The matching voice preparation did not defer speech");
+    playback_status = 4.;
+    check(reader.sample(lines, false, now + std::chrono::milliseconds(80)) == lines[0].text,
+          "A failed voice start must let the visible text be read");
+    check(reader.sample(lines, false, now + std::chrono::milliseconds(160)).empty(),
+          "The failed voice's caption repeated");
+    reader.reset();
+    playback_status = 1.;
+    check(reader.sample(lines, false, now).empty() &&
+          reader.sample(lines, false, now + std::chrono::seconds(1)) == lines[0].text,
+          "A voice that stays preparing must not hide the text indefinitely");
+
+    scenario();
+    reader.reset();
+    check(reader.sample(lines, false, now).empty(), "Expected a suppressed baseline caption");
 
     auto next = lines;
     next[0].text = "A different story line.";
@@ -212,6 +276,20 @@ int main()
     const std::array conversation_lines{SubtitleLine{conversation_window, text_widget, {}, "Ready?"}};
     check(reader.sample(conversation_lines, false, now).empty() && inspected_voices == 1,
           "A matching battle or menu voice was announced twice");
+    reader.reset();
+    cue = "Line_007";
+    use_sequence = true;
+    check(reader.sample(conversation_lines, false, now).empty(),
+          "An active sound actor with the exact stripped conversation cue was ignored");
+    reader.reset();
+    cue = "ADVIF_Line_007_alt";
+    suffix = "_alt";
+    check(reader.sample(conversation_lines, false, now).empty(),
+          "The voice suffix on the current matching conversation row was ignored");
+    reader.reset();
+    row_key = "ST_Line_008";
+    check(reader.sample(conversation_lines, false, now) == conversation_lines[0].text,
+          "A suffix from a different conversation row hid visible text");
     reader.reset();
     conversation = false;
     check(reader.sample(conversation_lines, false, now) == conversation_lines[0].text,
