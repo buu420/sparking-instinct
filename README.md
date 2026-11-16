@@ -6,12 +6,12 @@ Buu420 maintains Sparking Instinct and made the audio descriptions for both movi
 
 ## Install
 
-The beta supports **Windows x64, Steam build 24953175 (game version 3022.021.003.012.015)**, and requires the x64 **.NET 9 Desktop Runtime**, version 9.0.8 or a later .NET 9 patch. The ZIP includes the native reader, game-local Reloaded II loader, Prism, and both audio descriptions. Amethyst setup reuses a compatible runtime or offers Microsoft's installer if one is missing.
+Sparking Instinct supports **Windows x64, Steam build 24953175 (game version 3022.021.003.012.015)**, and requires the x64 **.NET 9 Desktop Runtime**, version 9.0.8 or a later .NET 9 patch. The ZIP includes the native reader, game-local Reloaded II loader, Prism, and both audio descriptions. Amethyst setup reuses a compatible runtime or offers Microsoft's installer if one is missing.
 
-- **Amethyst:** Close the game, find **Sparking Instinct (Beta)** under **DRAGON BALL: Sparking! ZERO** in the Buu420 source, and choose Install. Amethyst will ask before running the script that checks your game build and looks for a conflicting loader. Use Amethyst to uninstall. [Buu420 catalog](https://github.com/buu420/buu-s-mods)
+- **Amethyst**. Close the game, find **Sparking Instinct** under **DRAGON BALL: Sparking! ZERO** in the Buu420 source, and choose Install from the Stable channel. Amethyst will ask before running the script that checks your game build and looks for a conflicting loader. Use Amethyst to uninstall. [Buu420 catalog](https://github.com/buu420/buu-s-mods)
 - **Standalone:** Close the game, extract the Windows ZIP, and run `Install.cmd`. It finds the Steam install or opens a folder picker. Use `Uninstall.cmd` to remove a standalone install. [GitHub releases](https://github.com/buu420/sparking-instinct/releases)
 
-If you installed a standalone Reloaded II preview, use its uninstaller before installing this beta. Either installer stops when an unrelated loader occupies the startup file. For the Amethyst package, remove an active UE4SS installation through the tool that installed it before installing Sparking Instinct.
+If you installed a standalone Reloaded II preview, use its uninstaller before installing Sparking Instinct. Either installer stops when an unrelated loader occupies the startup file. For the Amethyst package, remove an active UE4SS installation through the tool that installed it before installing Sparking Instinct.
 
 Start your screen reader, then open the game normally from Steam or its desktop shortcut.
 
@@ -22,9 +22,7 @@ Start your screen reader, then open the game normally from Steam or its desktop 
 - `F9` switches between reading all visible dialogue and skipping lines whose matching game voice is playing. Text-only lines still read. `F6` can review visible dialogue in either mode.
 - A visible tutorial instruction repeats every 20 seconds.
 
-The native reader is a beta. Please include the game mode and the screen where a line is missed or unclear.
-
-For a report, include the screen name, action, and whether `F6` still works. The startup and reader logs are in `SparkingZeroAccess-Reloaded\Logs` inside the game folder.
+For a report, include the game mode, screen name, action, and whether `F6` still works. The startup and reader logs are in `SparkingZeroAccess-Reloaded\Logs` inside the game folder.
 
 ## Source
 
